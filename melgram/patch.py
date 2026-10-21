@@ -169,6 +169,13 @@ def patch_abis():
        r"(\n\s*afat \{\s*ndk \{\s*abiFilters )[^\n]+",
        lambda m: m.group(1) + abis, label="архитектуры: " + ", ".join(ABIS))
 
+    # ccache: repeat builds reuse already compiled C/C++ code
+    if os.environ.get("MELGRAM_CCACHE") == "1":
+        for gradle_file in ("TMessagesProj/build.gradle", "TMessagesProj_App/build.gradle"):
+            rx(gradle_file, r"arguments '-DANDROID_STL=c\+\+_static'",
+               "arguments '-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache', '-DANDROID_STL=c++_static'",
+               label="кэш компиляции C++")
+
 
 # ------------------------------------------------------------------ icon
 

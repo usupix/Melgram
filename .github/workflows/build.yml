@@ -24,7 +24,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
       - name: Файлы Melgram
@@ -89,8 +89,24 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
 
+      - name: Кэш компиляции C++
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ inputs.abis }}-${{ github.run_id }}
+          restore-keys: ccache-${{ inputs.abis }}-
+
+      - name: Установить ccache
+        run: |
+          sudo apt-get install -y -qq ccache > /dev/null
+          ccache --set-config=max_size=6G
+          ccache --set-config=compiler_check=string:ndk27.2.12479018
+          ccache --zero-stats > /dev/null
+          ccache --show-stats | head -5 || true
+
       - name: Превратить Telegram в Melgram
         env:
+          MELGRAM_CCACHE: "1"
           MELGRAM_API_ID: ${{ secrets.API_ID }}
           MELGRAM_API_HASH: ${{ secrets.API_HASH }}
           MELGRAM_ACCOUNTS: ${{ inputs.accounts }}
@@ -103,8 +119,37 @@ jobs:
       - name: Сборка APK (около 1–2 часов)
         working-directory: telegram
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace 2>&1 | tee ../build.log
+
+      - name: Статистика кэша
+        if: always()
+        run: ccache --show-stats || true
+
+      - name: Сохранить кэш компиляции
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ inputs.abis }}-${{ github.run_id }}
+
+      - name: Ошибки сборки (лог в ветку build-logs)
+        if: failure()
+        run: |
+          test -f build.log || exit 0
+          grep -n -E "error:|e: file|What went wrong|FAILED|Exception|OutOfMemory|Killed|No space left|\[melgram\] ОШИБКА" build.log \
+            | grep -v -E "^[0-9]+:\s*at " | head -n 40 > errors.txt || true
+          head -n 12 errors.txt | while IFS= read -r line; do echo "::error::${line:0:900}"; done
+          cd kit
+          git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
+          git checkout -q --orphan build-logs
+          git rm -rq --cached . || true
+          tail -n 5000 ../build.log > build.log
+          cp ../errors.txt errors.txt
+          git add -f build.log errors.txt
+          git commit -qm "Лог сборки ${{ github.run_number }}"
+          git push -qf origin build-logs
 
       - name: Подготовить файл
         run: |
