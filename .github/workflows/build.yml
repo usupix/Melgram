@@ -1,0 +1,131 @@
+name: Собрать Melgram
+
+on:
+  workflow_dispatch:
+    inputs:
+      accounts:
+        description: "Сколько аккаунтов"
+        default: "6"
+      abis:
+        description: "Архитектура процессора"
+        type: choice
+        default: "arm64-v8a"
+        options:
+          - "arm64-v8a"
+          - "armeabi-v7a"
+          - "arm64-v8a,armeabi-v7a"
+
+permissions:
+  contents: write
+
+env:
+  # Версия официального Telegram, на которой проверен Melgram (13.0.3)
+  TELEGRAM_COMMIT: 0aae959806c57be8ad457980f2a5c6277ff18635
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Файлы Melgram
+        uses: actions/checkout@v4
+        with:
+          path: kit
+
+      - name: Распаковать melgram.zip (если загружен архивом)
+        working-directory: kit
+        run: |
+          if [ ! -f melgram/patch.py ]; then
+            if [ -f melgram.zip ]; then unzip -q -o melgram.zip; else echo "Нет ни папки melgram, ни melgram.zip"; exit 1; fi
+          fi
+          test -f melgram/patch.py
+
+      - name: Проверить ключи
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
+            echo "::error::Добавь секреты API_ID и API_HASH: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+
+      - name: Своя иконка (icon.png / icon.jpg в корне репозитория)
+        working-directory: kit
+        run: |
+          for f in icon.png icon.jpg icon.jpeg icon.webp; do
+            if [ -f "$f" ]; then
+              pip install --quiet pillow
+              python3 melgram/make_icons.py "$f" melgram/res
+              echo "Иконка взята из $f"
+              break
+            fi
+          done
+
+      - name: Освободить место на диске
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          (sudo fallocate -l 8G /mnt/melgram.swap && sudo chmod 600 /mnt/melgram.swap && sudo mkswap /mnt/melgram.swap && sudo swapon /mnt/melgram.swap) || true
+          df -h / ; free -h
+
+      - name: Скачать исходники Telegram
+        run: |
+          git init -q telegram && cd telegram
+          git remote add origin https://github.com/DrKLO/Telegram.git
+          git fetch -q --depth 1 origin "$TELEGRAM_COMMIT"
+          git checkout -q FETCH_HEAD
+          git submodule update --init --recursive --depth 1 --jobs 8 \
+            || git submodule update --init --recursive --jobs 8
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK и NDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+
+      - name: Превратить Telegram в Melgram
+        env:
+          MELGRAM_API_ID: ${{ secrets.API_ID }}
+          MELGRAM_API_HASH: ${{ secrets.API_HASH }}
+          MELGRAM_ACCOUNTS: ${{ inputs.accounts }}
+          MELGRAM_ABIS: ${{ inputs.abis }}
+        run: python3 kit/melgram/patch.py telegram
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Сборка APK (около 1–2 часов)
+        working-directory: telegram
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace
+
+      - name: Подготовить файл
+        run: |
+          APK=$(find telegram/TMessagesProj_App/build/outputs/apk -name "*.apk" | head -n 1)
+          test -n "$APK"
+          VERSION=$(grep '^APP_VERSION_NAME=' telegram/gradle.properties | cut -d= -f2)
+          mkdir -p out && cp "$APK" "out/Melgram-$VERSION.apk"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ls -lh out
+
+      - name: Сохранить как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: Melgram-${{ env.VERSION }}
+          path: out/*.apk
+
+      - name: Опубликовать в Releases (удобно скачать с телефона)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${VERSION}-build${{ github.run_number }}" out/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "Melgram ${VERSION} (сборка ${{ github.run_number }})" \
+            --notes "Аккаунтов: ${{ inputs.accounts }}. Архитектура: ${{ inputs.abis }}."
