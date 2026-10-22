@@ -27,6 +27,24 @@ public final class MelgramConfig {
     public static final String HIDE_KEYBOARD_ON_SCROLL = "hide_keyboard_on_scroll";
     public static final String NO_NUMBER_ROUNDING = "no_number_rounding";
     public static final String SCROLL_TOP_BUTTON = "scroll_top_button"; // on by default
+    // ghost mode
+    public static final String GHOST_READ = "ghost_read";
+    public static final String GHOST_TYPING = "ghost_typing";
+    public static final String GHOST_OFFLINE = "ghost_offline";
+    public static final String GHOST_STORIES = "ghost_stories";
+    public static final String[] GHOST_KEYS = {GHOST_READ, GHOST_TYPING, GHOST_OFFLINE, GHOST_STORIES};
+    // quiet hours
+    public static final String QUIET_ENABLED = "quiet_enabled";
+    public static final String QUIET_FROM = "quiet_from"; // minutes since midnight
+    public static final String QUIET_TO = "quiet_to";
+    // double tap
+    public static final String TAP_IN = "tap_in";
+    public static final String TAP_OUT = "tap_out";
+    public static final int TAP_REACTION = 0;
+    public static final int TAP_REPLY = 1;
+    public static final int TAP_COPY = 2;
+    public static final int TAP_EDIT = 3;
+    public static final int TAP_NONE = 4;
     // appearance
     public static final String NO_APPBAR_SHADOW = "no_appbar_shadow";
     public static final String NO_GOOEY_AVATAR = "no_gooey_avatar";
@@ -152,6 +170,104 @@ public final class MelgramConfig {
 
     public static boolean scrollTopButton() {
         return get(SCROLL_TOP_BUTTON);
+    }
+
+    // ---------------------------------------------------------------- ghost mode
+
+    public static boolean ghost(String key) {
+        return get(key);
+    }
+
+    public static boolean ghostAny() {
+        for (String k : GHOST_KEYS) {
+            if (get(k)) return true;
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------- double tap
+
+    public static int doubleTapAction(boolean outgoing) {
+        return getInt(outgoing ? TAP_OUT : TAP_IN, TAP_REACTION);
+    }
+
+    // ---------------------------------------------------------------- forward without author
+
+    private static volatile boolean forwardNoQuote;
+    private static volatile long forwardNoQuoteTime;
+    private static volatile boolean panelNoQuote;
+
+    public static void requestForwardNoQuote() {
+        forwardNoQuote = true;
+        forwardNoQuoteTime = System.currentTimeMillis();
+    }
+
+    public static void clearForwardNoQuote() {
+        forwardNoQuote = false;
+    }
+
+    /** Returns and clears the "forward without author" request (valid for 10 minutes). */
+    public static boolean takeForwardNoQuote() {
+        boolean value = forwardNoQuote && System.currentTimeMillis() - forwardNoQuoteTime < 10 * 60_000L;
+        forwardNoQuote = false;
+        return value;
+    }
+
+    public static void setPanelNoQuote(boolean value) {
+        panelNoQuote = value;
+    }
+
+    public static boolean takePanelNoQuote() {
+        boolean value = panelNoQuote;
+        panelNoQuote = false;
+        return value;
+    }
+
+    // ---------------------------------------------------------------- quiet hours
+
+    public static boolean quietEnabled() {
+        return get(QUIET_ENABLED);
+    }
+
+    public static int quietFrom() {
+        return getInt(QUIET_FROM, 23 * 60);
+    }
+
+    public static int quietTo() {
+        return getInt(QUIET_TO, 8 * 60);
+    }
+
+    /** Accounts take part in quiet hours unless excluded. */
+    public static boolean quietForAccount(int account) {
+        return !get("quiet_skip_" + account);
+    }
+
+    public static void setQuietForAccount(int account, boolean value) {
+        set("quiet_skip_" + account, !value);
+    }
+
+    public static boolean inQuietHours(int account) {
+        if (!quietEnabled() || !quietForAccount(account)) {
+            return false;
+        }
+        MelgramQuietHours.ensureTicker();
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        int now = c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE);
+        int from = quietFrom();
+        int to = quietTo();
+        if (from == to) {
+            return false;
+        }
+        return from < to ? now >= from && now < to : now >= from || now < to;
+    }
+
+    public static String formatMinutes(int minutes) {
+        return String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60);
+    }
+
+    /** Background connection is off for this account: by its own switch or by quiet hours. */
+    public static boolean backgroundOff(int account) {
+        return backgroundDisabled(account) || inQuietHours(account);
     }
 
     /** Per-account switch for Telegram's background ("push") connection. */

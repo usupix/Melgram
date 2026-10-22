@@ -3,9 +3,13 @@ package org.telegram.ui;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.view.Gravity;
 import android.view.View;
+import android.widget.LinearLayout;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MelgramConfig;
+import org.telegram.messenger.MelgramQuietHours;
 import org.telegram.messenger.MelgramUpdater;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.UserConfig;
@@ -13,9 +17,13 @@ import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.messenger.R;
+import org.telegram.ui.ActionBar.AlertDialog;
+import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.NotificationsCheckCell;
 import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Components.BulletinFactory;
+import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.NumberPicker;
 import org.telegram.ui.Components.UItem;
 import org.telegram.ui.Components.UniversalAdapter;
 import org.telegram.ui.Components.UniversalFragment;
@@ -32,6 +40,22 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_TABLET = 100;
     private static final int ID_BACKGROUND = 200;
     private static final int ID_OPTION = 1000;
+    private static final int ID_GHOST_ALL = 300;
+    private static final int ID_GHOST = 310;
+    private static final int ID_QUIET = 400;
+    private static final int ID_QUIET_FROM = 401;
+    private static final int ID_QUIET_TO = 402;
+    private static final int ID_QUIET_ACCOUNT = 410;
+    private static final int ID_TAP_IN = 500;
+    private static final int ID_TAP_OUT = 501;
+
+    private static final String[] GHOST_TITLES = {"Не отправлять «прочитано»", "Не показывать «печатает…»", "Всегда «не в сети»", "Смотреть истории незаметно"};
+    private static final String[] GHOST_SUBTITLES = {
+            "Собеседник не увидит, что ты прочитал сообщение",
+            "И «записывает голосовое», «отправляет фото»",
+            "Не отмечаться в сети, пока Melgram открыт",
+            "Автор не увидит тебя в списке просмотров"};
+    private static final String[] TAP_NAMES = {"Реакция", "Ответить", "Копировать текст", "Редактировать", "Ничего"};
 
     private static final class Option {
         final String key;
@@ -104,13 +128,30 @@ public class MelgramSettingsFragment extends UniversalFragment {
         for (int i = 0; i < CHAT_OPTIONS.length; i++) {
             items.add(optionItem(i));
         }
-        items.add(UItem.asShadow(null));
+        if (MelgramConfig.isAvailable("double_tap")) {
+            items.add(UItem.asButton(ID_TAP_IN, "Двойное нажатие: чужие", TAP_NAMES[MelgramConfig.doubleTapAction(false)]));
+            items.add(UItem.asButton(ID_TAP_OUT, "Двойное нажатие: свои", TAP_NAMES[MelgramConfig.doubleTapAction(true)]));
+        }
+        items.add(UItem.asShadow(MelgramConfig.isAvailable("message_menu")
+                ? "В меню сообщения (долгое нажатие) появились «Переслать без автора» и сохранение стикеров и кружков в галерею."
+                : null));
 
         items.add(UItem.asHeader("Оформление"));
         for (int i = CHAT_OPTIONS.length; i < optionCount(); i++) {
             items.add(optionItem(i));
         }
         items.add(UItem.asShadow("Пункты с пометкой ↻ применяются после перезапуска Melgram."));
+
+        if (MelgramConfig.isAvailable("ghost_mode")) {
+            items.add(UItem.asHeader("Режим призрака"));
+            items.add(UItem.asButtonCheck(ID_GHOST_ALL, "Режим призрака", "Все пункты ниже разом").setChecked(allGhost()));
+            for (int i = 0; i < MelgramConfig.GHOST_KEYS.length; i++) {
+                items.add(UItem.asCheck(ID_GHOST + i, GHOST_TITLES[i]).setChecked(MelgramConfig.ghost(MelgramConfig.GHOST_KEYS[i])));
+            }
+            items.add(UItem.asShadow("«Прочитано»: если ответишь в чате, Telegram сам отметит его прочитанным. " +
+                    "Прочитанное в режиме призрака останется непрочитанным у собеседника и на других твоих устройствах. " +
+                    "«Не в сети» не скрывает время последнего визита — его настраивают в «Конфиденциальность» → «Время захода»."));
+        }
 
         if (MelgramConfig.isAvailable("account_background")) {
             boolean global = globalBackgroundConnection();
@@ -128,6 +169,26 @@ public class MelgramSettingsFragment extends UniversalFragment {
             items.add(UItem.asShadow("Держит связь с Telegram, когда Melgram свёрнут, чтобы уведомления приходили сразу. " +
                     "Выключи у второстепенных аккаунтов, чтобы экономить батарею: их сообщения придут, когда откроешь Melgram. " +
                     "Общий переключатель — «Уведомления и звуки» → «Фоновое соединение»."));
+        }
+
+        if (MelgramConfig.isAvailable("quiet_hours")) {
+            boolean quiet = MelgramConfig.quietEnabled();
+            items.add(UItem.asHeader("Тихие часы"));
+            items.add(UItem.asButtonCheck(ID_QUIET, "Тихие часы",
+                    MelgramConfig.formatMinutes(MelgramConfig.quietFrom()) + " – " + MelgramConfig.formatMinutes(MelgramConfig.quietTo())).setChecked(quiet));
+            if (quiet) {
+                items.add(UItem.asButton(ID_QUIET_FROM, "Начало", MelgramConfig.formatMinutes(MelgramConfig.quietFrom())));
+                items.add(UItem.asButton(ID_QUIET_TO, "Конец", MelgramConfig.formatMinutes(MelgramConfig.quietTo())));
+                for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                    UserConfig config = UserConfig.getInstance(a);
+                    if (!config.isClientActivated()) continue;
+                    TLRPC.User user = config.getCurrentUser();
+                    String name = user != null ? UserObject.getUserName(user) : "Аккаунт " + (a + 1);
+                    items.add(UItem.asCheck(ID_QUIET_ACCOUNT + a, name).setChecked(MelgramConfig.quietForAccount(a)));
+                }
+            }
+            items.add(UItem.asShadow("В это время отмеченные аккаунты не держат фоновое соединение и не звенят. " +
+                    "Сообщения не теряются — они придут, когда откроешь Melgram или закончатся тихие часы."));
         }
 
         if (MelgramConfig.isAvailable("tablet_mode")) {
@@ -170,6 +231,36 @@ public class MelgramSettingsFragment extends UniversalFragment {
             presentFragment(new MelgramToneFragment());
         } else if (item.id == ID_UPDATE) {
             MelgramUpdater.checkManual(getParentActivity());
+        } else if (item.id == ID_GHOST_ALL) {
+            boolean value = !allGhost();
+            for (String k : MelgramConfig.GHOST_KEYS) MelgramConfig.set(k, value);
+            if (view instanceof NotificationsCheckCell) ((NotificationsCheckCell) view).setChecked(value);
+            listView.adapter.update(true);
+            BulletinFactory.of(this).createSimpleBulletin(R.raw.done, value ? "Режим призрака включён" : "Режим призрака выключен").show();
+        } else if (item.id >= ID_GHOST && item.id < ID_GHOST + MelgramConfig.GHOST_KEYS.length) {
+            String key = MelgramConfig.GHOST_KEYS[item.id - ID_GHOST];
+            boolean value = !MelgramConfig.ghost(key);
+            MelgramConfig.set(key, value);
+            if (view instanceof TextCheckCell) ((TextCheckCell) view).setChecked(value);
+            listView.adapter.update(true);
+        } else if (item.id == ID_TAP_IN || item.id == ID_TAP_OUT) {
+            chooseDoubleTap(item.id == ID_TAP_OUT);
+        } else if (item.id == ID_QUIET) {
+            boolean value = !MelgramConfig.quietEnabled();
+            MelgramConfig.set(MelgramConfig.QUIET_ENABLED, value);
+            if (view instanceof NotificationsCheckCell) ((NotificationsCheckCell) view).setChecked(value);
+            MelgramQuietHours.applyAll(true);
+            if (value) MelgramQuietHours.ensureTicker();
+            listView.adapter.update(true);
+        } else if (item.id == ID_QUIET_FROM || item.id == ID_QUIET_TO) {
+            chooseTime(item.id == ID_QUIET_FROM);
+        } else if (item.id >= ID_QUIET_ACCOUNT && item.id < ID_QUIET_ACCOUNT + UserConfig.MAX_ACCOUNT_COUNT) {
+            int account = item.id - ID_QUIET_ACCOUNT;
+            boolean value = !MelgramConfig.quietForAccount(account);
+            MelgramConfig.setQuietForAccount(account, value);
+            if (view instanceof TextCheckCell) ((TextCheckCell) view).setChecked(value);
+            MelgramQuietHours.applyAll(true);
+            listView.adapter.update(true);
         } else if (item.id >= ID_BACKGROUND && item.id < ID_BACKGROUND + UserConfig.MAX_ACCOUNT_COUNT) {
             int account = item.id - ID_BACKGROUND;
             if (!globalBackgroundConnection()) {
@@ -213,6 +304,62 @@ public class MelgramSettingsFragment extends UniversalFragment {
     @Override
     protected boolean onLongClick(UItem item, View view, int position, float x, float y) {
         return false;
+    }
+
+    private static boolean allGhost() {
+        for (String k : MelgramConfig.GHOST_KEYS) {
+            if (!MelgramConfig.ghost(k)) return false;
+        }
+        return true;
+    }
+
+    private void chooseDoubleTap(boolean outgoing) {
+        if (getParentActivity() == null) return;
+        final int[] values = outgoing
+                ? new int[]{MelgramConfig.TAP_REACTION, MelgramConfig.TAP_REPLY, MelgramConfig.TAP_COPY, MelgramConfig.TAP_EDIT, MelgramConfig.TAP_NONE}
+                : new int[]{MelgramConfig.TAP_REACTION, MelgramConfig.TAP_REPLY, MelgramConfig.TAP_COPY, MelgramConfig.TAP_NONE};
+        CharSequence[] names = new CharSequence[values.length];
+        for (int i = 0; i < values.length; i++) names[i] = TAP_NAMES[values[i]];
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(outgoing ? "Двойное нажатие: свои сообщения" : "Двойное нажатие: чужие сообщения");
+        builder.setItems(names, (dialog, which) -> {
+            MelgramConfig.setInt(outgoing ? MelgramConfig.TAP_OUT : MelgramConfig.TAP_IN, values[which]);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton("Отмена", null);
+        showDialog(builder.create());
+    }
+
+    private void chooseTime(boolean start) {
+        if (getParentActivity() == null) return;
+        int current = start ? MelgramConfig.quietFrom() : MelgramConfig.quietTo();
+        LinearLayout layout = new LinearLayout(getParentActivity());
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        layout.setGravity(Gravity.CENTER);
+        final NumberPicker hours = new NumberPicker(getParentActivity());
+        hours.setMinValue(0);
+        hours.setMaxValue(23);
+        hours.setValue(current / 60);
+        hours.setFormatter(value -> String.format(java.util.Locale.US, "%02d", value));
+        hours.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        final NumberPicker minutes = new NumberPicker(getParentActivity());
+        minutes.setMinValue(0);
+        minutes.setMaxValue(11);
+        minutes.setValue((current % 60) / 5);
+        minutes.setFormatter(value -> String.format(java.util.Locale.US, "%02d", value * 5));
+        minutes.setTextColor(Theme.getColor(Theme.key_dialogTextBlack));
+        layout.addView(hours, LayoutHelper.createLinear(64, 160));
+        layout.addView(minutes, LayoutHelper.createLinear(64, 160, 16, 0, 0, 0));
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(start ? "Начало тихих часов" : "Конец тихих часов");
+        builder.setView(layout);
+        builder.setPositiveButton("Готово", (dialog, which) -> {
+            MelgramConfig.setInt(start ? MelgramConfig.QUIET_FROM : MelgramConfig.QUIET_TO, hours.getValue() * 60 + minutes.getValue() * 5);
+            MelgramQuietHours.applyAll(true);
+            listView.adapter.update(true);
+        });
+        builder.setNegativeButton("Отмена", null);
+        showDialog(builder.create());
     }
 
     /** Telegram's own global "Background connection" setting (same rule as ConnectionsManager). */

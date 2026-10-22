@@ -33,6 +33,7 @@ public class MelgramIconFragment extends UniversalFragment {
     private static final int ID_PICK = 1;
     private static final int ID_PIN = 2;
     private static final int ID_RESET = 3;
+    private static final int ID_THEME = 4;
 
     private Bitmap source;
     private Bitmap rendered;
@@ -69,6 +70,9 @@ public class MelgramIconFragment extends UniversalFragment {
         items.add(UItem.asHeader("Значок приложения"));
         items.add(UItem.asCustom(selector));
         items.add(UItem.asShadow("Меняет настоящий значок Melgram — на рабочем столе и в меню приложений. Значок обновится через пару секунд."));
+
+        items.add(UItem.asButton(ID_THEME, R.drawable.msg_palette, "Тема в цветах значка").accent());
+        items.add(UItem.asShadow("Берёт главный цвет выбранного значка и красит им кнопки, ссылки и твои сообщения. Работает и в светлой, и в тёмной теме; вернуть прежние цвета можно в «Настройки чатов» → «Цветовая тема»."));
 
         items.add(UItem.asHeader("Своя картинка из галереи"));
         items.add(UItem.asCustom(previewContainer, 160));
@@ -112,6 +116,19 @@ public class MelgramIconFragment extends UniversalFragment {
             } catch (Throwable e) {
                 FileLog.e(e);
                 bulletin(R.raw.error, "Не получилось добавить ярлык");
+            }
+        } else if (item.id == ID_THEME) {
+            try {
+                boolean dark = Theme.getActiveTheme() != null && Theme.getActiveTheme().isDark();
+                int color = MelgramThemeTools.accentFrom(MelgramThemeTools.currentIconBitmap(activity), dark);
+                if (MelgramThemeTools.apply(this, color)) {
+                    bulletin(R.raw.done, "Тема в цветах значка применена");
+                } else {
+                    bulletin(R.raw.error, "У этой темы нельзя поменять цвет — выбери стандартную тему в настройках чатов");
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+                bulletin(R.raw.error, "Не получилось поменять тему");
             }
         } else if (item.id == ID_RESET) {
             MelgramIconTools.resetSource(activity);

@@ -403,7 +403,75 @@ def patch_features():
     soft_feature("account_background", "фоновое соединение по аккаунтам", [
         (J + "tgnet/ConnectionsManager.java", r"public void setPushConnectionEnabled\(boolean value\)", None),
         (J + "tgnet/ConnectionsManager.java", r"public boolean isPushConnectionEnabled\(\) \{",
-         after("\n        if (%s.backgroundDisabled(currentAccount)) return false;" % MC)),
+         after("\n        if (%s.backgroundOff(currentAccount)) return false;" % MC)),
+    ])
+    soft_feature("quiet_hours", "тихие часы", [
+        (J + "messenger/NotificationsController.java", r"\n(\s*)if \(!notifyDisabled && dialog_id == override_dialog_id && chat != null\) \{",
+         lambda m: "\n" + m.group(1) + "if (%s.inQuietHours(currentAccount)) {\n" % MC
+                   + m.group(1) + "    notifyDisabled = true;\n" + m.group(1) + "}" + m.group(0)),
+    ])
+    soft_feature("ghost_mode", "режим призрака", [
+        (J + "tgnet/ConnectionsManager.java",
+         r"private void sendRequestInternal\(TLObject object, RequestDelegate onComplete, RequestDelegateTimestamp onCompleteTimestamp, QuickAckDelegate onQuickAck, WriteToSocketDelegate onWriteToSocket, int flags, int datacenterId, int connectionType, boolean immediate, int requestToken\) \{",
+         after("\n        if (org.telegram.messenger.MelgramGhost.intercept(currentAccount, object, onComplete, onCompleteTimestamp)) return;")),
+    ])
+    ca = J + "ui/ChatActivity.java"
+    soft_feature("double_tap", "двойное нажатие", [
+        (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
+         after("""
+            if (view instanceof ChatMessageCell && ((ChatMessageCell) view).getPrimaryMessageObject() != null) {
+                final MessageObject melgramMsg = ((ChatMessageCell) view).getPrimaryMessageObject();
+                final int melgramTap = %(mc)s.doubleTapAction(melgramMsg.isOut());
+                if (melgramTap != %(mc)s.TAP_REACTION) {
+                    if (melgramTap == %(mc)s.TAP_NONE || melgramMsg.isDateObject || melgramMsg.isSponsored() || melgramMsg.getId() <= 0 || actionBar.isActionModeShowed() || isInScheduleMode()) return false;
+                    if (melgramTap == %(mc)s.TAP_EDIT) return melgramMsg.canEditMessage(currentChat);
+                    if (melgramTap == %(mc)s.TAP_COPY) return melgramMsg.messageOwner != null && !TextUtils.isEmpty(melgramMsg.messageOwner.message) && !isPeerNoForwards() && !melgramMsg.messageOwner.noforwards;
+                    return !(melgramMsg.messageOwner != null && melgramMsg.messageOwner.noforwards) && (currentChat == null || ChatObject.canSendMessages(currentChat) && !(ChatObject.isChannel(currentChat) && !currentChat.megagroup && !ChatObject.canPost(currentChat)));
+                }
+            }""" % {"mc": MC})),
+        (ca, r"public void onDoubleTap\(View view, int position, float x, float y\) \{\s*\n\s*if \(getParentActivity\(\) == null \|\| isSecretChat\(\) \|\| isInScheduleMode\(\) \|\| isInPreviewMode\(\) \|\| isQuickRepliesOrWelcomeMessagesMode\(\)\) \{\s*\n\s*return;\s*\n\s*\}",
+         after("""
+            if (view instanceof ChatMessageCell && ((ChatMessageCell) view).getPrimaryMessageObject() != null) {
+                final MessageObject melgramMsg = ((ChatMessageCell) view).getPrimaryMessageObject();
+                final int melgramTap = %(mc)s.doubleTapAction(melgramMsg.isOut());
+                if (melgramTap != %(mc)s.TAP_REACTION) {
+                    if (melgramTap == %(mc)s.TAP_NONE) return;
+                    selectedObject = melgramMsg;
+                    selectedObjectGroup = getValidGroupedMessage(melgramMsg);
+                    selectedObjectToEditCaption = null;
+                    processSelectedOption(melgramTap == %(mc)s.TAP_REPLY ? OPTION_REPLY : melgramTap == %(mc)s.TAP_COPY ? OPTION_COPY : OPTION_EDIT);
+                    return;
+                }
+            }""" % {"mc": MC})),
+    ])
+    soft_feature("message_menu", "пункты в меню сообщения", [
+        (ca, r"if \(canForward\) \{\s*\n\s*items\.add\(LocaleController\.getString\(R\.string\.Forward\)\);\s*\n\s*options\.add\(OPTION_FORWARD\);\s*\n\s*icons\.add\(R\.drawable\.msg_forward\);\s*\n\s*\}",
+         after("\n                org.telegram.ui.MelgramChatTools.addOptions(message, canForward, noforwardsOrPaidMedia, items, options, icons);")),
+        (ca, r"private void processSelectedOption\(int option\) \{\s*\n\s*if \(selectedObject == null \|\| getParentActivity\(\) == null\) \{\s*\n\s*return;\s*\n\s*\}",
+         after("""
+        if (option == org.telegram.ui.MelgramChatTools.OPTION_FORWARD_NOQUOTE) {
+            processSelectedOption(OPTION_FORWARD);
+            %(mc)s.requestForwardNoQuote();
+            return;
+        }
+        if (org.telegram.ui.MelgramChatTools.handleOption(this, option, selectedObject)) {
+            selectedObject = null;
+            selectedObjectGroup = null;
+            selectedObjectToEditCaption = null;
+            closeMenu(true);
+            return;
+        }""" % {"mc": MC})),
+        (ca, r"case OPTION_FORWARD: \{\s*\n", after("                %s.clearForwardNoQuote();\n" % MC)),
+        (ca, r"public boolean didSelectDialogs\(DialogsActivity fragment, ArrayList<MessagesStorage\.TopicKey> dids, CharSequence message, boolean param, boolean notify, int scheduleDate, int scheduleRepeatPeriod, TopicsFragment topicsFragment\) \{\s*\n\s*if \(\(messagePreviewParams == null[^\n]*\n\s*return false;\s*\n\s*\}",
+         after("\n        final boolean melgramNoQuote = %s.takeForwardNoQuote() && forwardingMessage != null;" % MC)),
+        (ca, r"getSendMessagesHelper\(\)\.sendMessage\(fmessages, did, false, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1",
+         lambda m: "getSendMessagesHelper().sendMessage(fmessages, did, melgramNoQuote, false, notify, scheduleDate, scheduleRepeatPeriod, null, -1"),
+        (ca, r"chatActivity\.showFieldPanelForForward\(true, fmessages\);",
+         lambda m: "%s.setPanelNoQuote(melgramNoQuote);\n                        " % MC + m.group(0)),
+        (ca, r"\} else \{\s*\n\s*showFieldPanelForForward\(true, fmessages\);",
+         lambda m: m.group(0).replace("showFieldPanelForForward(true, fmessages);", "%s.setPanelNoQuote(melgramNoQuote);\n                    showFieldPanelForForward(true, fmessages);" % MC)),
+        (ca, r"messagePreviewParams\.updateForward\(messageObjectsToForward, dialog_id\);",
+         after("\n                if (%s.takePanelNoQuote() && messagePreviewParams != null) messagePreviewParams.hideForwardSendersName = true;" % MC)),
     ])
     soft_feature("tablet_mode", "режим планшета", [
         (J + "messenger/AndroidUtilities.java", r"public static boolean isTabletForce\(\) \{",
