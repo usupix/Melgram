@@ -1,9 +1,9 @@
 {
   "version": "13.0.3",
-  "build": 5,
+  "build": 6,
   "telegram_commit": "0aae959806c57be8ad457980f2a5c6277ff18635",
-  "apk_url": "https://github.com/usupix/Melgram/releases/download/v13.0.3-build5/Melgram-13.0.3.apk",
-  "release_page": "https://github.com/usupix/Melgram/releases/tag/v13.0.3-build5",
-  "built_at": "2026-10-22T06:58:32Z",
+  "apk_url": "https://github.com/usupix/Melgram/releases/download/v13.0.3-build6/Melgram-13.0.3.apk",
+  "release_page": "https://github.com/usupix/Melgram/releases/tag/v13.0.3-build6",
+  "built_at": "2026-10-22T07:54:53Z",
   "blocked": null
 }
