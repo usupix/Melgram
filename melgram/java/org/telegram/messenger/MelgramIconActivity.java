@@ -116,14 +116,29 @@ public class MelgramIconActivity extends Activity {
         root.addView(title, matchWrap(0));
 
         TextView info = new TextView(this);
-        info.setText("Выбери любую картинку — Melgram сам обрежет её и подгонит под формат иконки. " +
-                "Android не разрешает приложениям менять свой значок в списке программ, " +
-                "поэтому иконка появится на рабочем столе как ярлык Melgram. " +
-                "Старый значок с рабочего стола можно убрать: в меню приложений он останется.");
+        info.setText("Встроенные картинки меняют настоящий значок Melgram — и на рабочем столе, и в меню приложений.");
         info.setTextColor(colorSub);
         info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         info.setLineSpacing(dp(2), 1f);
         root.addView(info, matchWrap(dp(8)));
+
+        addBuiltInIcons(root);
+
+        TextView ownTitle = new TextView(this);
+        ownTitle.setText("Своя картинка из галереи");
+        ownTitle.setTextColor(colorText);
+        ownTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        ownTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(ownTitle, matchWrap(dp(28)));
+
+        TextView ownInfo = new TextView(this);
+        ownInfo.setText("Любую картинку Melgram обрежет и подгонит под формат иконки. Android не разрешает " +
+                "менять значок приложения на произвольную картинку, поэтому она появится на рабочем столе " +
+                "как ярлык Melgram. Старый значок с рабочего стола можно убрать — в меню приложений он останется.");
+        ownInfo.setTextColor(colorSub);
+        ownInfo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        ownInfo.setLineSpacing(dp(2), 1f);
+        root.addView(ownInfo, matchWrap(dp(6)));
 
         preview = new ImageView(this);
         preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -171,6 +186,102 @@ public class MelgramIconActivity extends Activity {
         root.addView(makeButton("Вернуть стандартную картинку", false, v -> resetToDefault()), matchWrap(dp(10)));
 
         return scroll;
+    }
+
+    // ---------------------------------------------------------------- built-in icons
+
+    private final java.util.List<View> iconRings = new java.util.ArrayList<>();
+
+    private void addBuiltInIcons(LinearLayout root) {
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setClipToPadding(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        hs.addView(row);
+        root.addView(hs, matchWrap(dp(16)));
+
+        org.telegram.ui.LauncherIconController.LauncherIcon[] icons = org.telegram.ui.LauncherIconController.LauncherIcon.values();
+        for (org.telegram.ui.LauncherIconController.LauncherIcon icon : icons) {
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            cell.setPadding(dp(6), dp(4), dp(6), dp(4));
+
+            android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+            View ring = new View(this);
+            GradientDrawable ringBg = new GradientDrawable();
+            ringBg.setShape(GradientDrawable.OVAL);
+            ringBg.setColor(0x00000000);
+            ringBg.setStroke(dp(3), colorAccent);
+            ring.setBackground(ringBg);
+            frame.addView(ring, new android.widget.FrameLayout.LayoutParams(dp(72), dp(72)));
+            ImageView image = new ImageView(this);
+            try {
+                Bitmap layer = BitmapFactory.decodeResource(getResources(), icon.background);
+                if (layer != null) {
+                    image.setImageBitmap(makeCirclePreview(layer));
+                }
+            } catch (Throwable ignore) {
+            }
+            android.widget.FrameLayout.LayoutParams ilp = new android.widget.FrameLayout.LayoutParams(dp(60), dp(60));
+            ilp.gravity = Gravity.CENTER;
+            frame.addView(image, ilp);
+            cell.addView(frame, new LinearLayout.LayoutParams(dp(72), dp(72)));
+
+            TextView name = new TextView(this);
+            String title;
+            try {
+                title = org.telegram.messenger.LocaleController.getString(icon.title);
+            } catch (Throwable e) {
+                title = "";
+            }
+            name.setText(title);
+            name.setTextColor(colorText);
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            name.setGravity(Gravity.CENTER_HORIZONTAL);
+            name.setMaxLines(2);
+            cell.addView(name, new LinearLayout.LayoutParams(dp(80), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            ring.setTag(icon);
+            iconRings.add(ring);
+            cell.setOnClickListener(v -> {
+                try {
+                    org.telegram.ui.LauncherIconController.setIcon(icon);
+                    toast("Значок поменяется через пару секунд");
+                } catch (Throwable e) {
+                    toast("Не получилось поменять значок: " + e.getMessage());
+                }
+                updateIconRings();
+            });
+            row.addView(cell);
+        }
+        updateIconRings();
+    }
+
+    private void updateIconRings() {
+        for (View ring : iconRings) {
+            boolean enabled = false;
+            try {
+                enabled = org.telegram.ui.LauncherIconController.isEnabled((org.telegram.ui.LauncherIconController.LauncherIcon) ring.getTag());
+            } catch (Throwable ignore) {
+            }
+            ring.setVisibility(enabled ? View.VISIBLE : View.INVISIBLE);
+        }
+    }
+
+    /** The central 72dp of a 108dp adaptive layer, cut to a circle. */
+    private static Bitmap makeCirclePreview(Bitmap layer) {
+        int size = layer.getWidth();
+        int vis = Math.round(size * 72f / 108f);
+        int o = (size - vis) / 2;
+        Bitmap pv = Bitmap.createBitmap(vis, vis, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(pv);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        c.drawCircle(vis / 2f, vis / 2f, vis / 2f, p);
+        p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC_IN));
+        c.drawBitmap(layer, new Rect(o, o, o + vis, o + vis), new Rect(0, 0, vis, vis), p);
+        return pv;
     }
 
     // ---------------------------------------------------------------- picture

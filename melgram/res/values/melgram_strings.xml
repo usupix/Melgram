@@ -2,4 +2,6 @@
 <resources>
     <string name="MelgramIconShort">Иконка</string>
     <string name="MelgramIconLong">Сменить иконку Melgram</string>
+    <string name="MelgramSettingsTitle">Настройки Melgram</string>
+    <string name="MelgramToneTitle">Звук уведомления</string>
 </resources>

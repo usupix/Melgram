@@ -224,14 +224,18 @@ def patch_icon():
     n = copy_tree(os.path.join(HERE, "java"), JAVA)
     print("[melgram] %-55s %d файлов" % ("экран выбора иконки", n))
 
-    activity = (
-        '        <activity\n'
-        '            android:name="org.telegram.messenger.MelgramIconActivity"\n'
-        '            android:label="@string/MelgramIconLong"\n'
-        '            android:theme="@android:style/Theme.Material.Light.NoActionBar"\n'
-        '            android:exported="true" />\n\n'
-        '    </application>')
-    rx("TMessagesProj/src/main/AndroidManifest.xml", r"</application>", activity, label="регистрация экрана иконки")
+    activity = ""
+    for cls, label, exported in (("MelgramIconActivity", "@string/MelgramIconLong", "true"),
+                                 ("MelgramSettingsActivity", "@string/MelgramSettingsTitle", "false"),
+                                 ("MelgramToneActivity", "@string/MelgramToneTitle", "false")):
+        activity += (
+            '        <activity\n'
+            '            android:name="org.telegram.messenger.%s"\n'
+            '            android:label="%s"\n'
+            '            android:theme="@android:style/Theme.Material.Light.NoActionBar"\n'
+            '            android:exported="%s" />\n' % (cls, label, exported))
+    rx("TMessagesProj/src/main/AndroidManifest.xml", r"</application>", lambda m: activity + "\n    </application>",
+       label="регистрация экранов Melgram")
 
     # Long press on the app icon -> "Сменить иконку Melgram"
     shortcut = (
@@ -255,17 +259,14 @@ def patch_icon():
        r"(\n(\s*)items\.add\(SettingCell\.Factory\.of\(10,[^\n]*SettingsLanguage[^\n]*\n)",
        lambda m: m.group(1) + m.group(2) +
        'items.add(SettingCell.Factory.of(1001, IconBackgroundColors.GREEN.top, IconBackgroundColors.GREEN.bottom, '
-       'R.drawable.melgram_settings_icon, "Иконка Melgram", "Своя картинка из галереи"));\n' + m.group(2) +
-       'items.add(SettingCell.Factory.of(1002, IconBackgroundColors.BLUE.top, IconBackgroundColors.BLUE.bottom, '
-       'R.drawable.melgram_update_icon, "Обновления Melgram", org.telegram.messenger.MelgramUpdater.versionText()));\n',
+       'R.drawable.melgram_settings_icon, "Настройки Melgram", "Иконки, звуки, улучшения · " + org.telegram.messenger.MelgramUpdater.versionText()));\n',
        label="пункт в настройках")
     rx(sa,
        r"(\n(\s*)case 10:\s*\n\s*presentSettingFragment\(new LanguageSelectActivity\(\)\);\s*\n\s*break;)",
        lambda m: m.group(1) + "\n" + m.group(2) + "case 1001:\n" + m.group(2) +
-       "    if (getParentActivity() != null) getParentActivity().startActivity(new android.content.Intent(getParentActivity(), org.telegram.messenger.MelgramIconActivity.class));\n" +
-       m.group(2) + "    break;\n" + m.group(2) + "case 1002:\n" + m.group(2) +
-       "    org.telegram.messenger.MelgramUpdater.checkManual(getParentActivity());\n" + m.group(2) + "    break;",
-       label="открытие экрана иконки и обновлений")
+       "    if (getParentActivity() != null) getParentActivity().startActivity(new android.content.Intent(getParentActivity(), org.telegram.messenger.MelgramSettingsActivity.class));\n" +
+       m.group(2) + "    break;",
+       label="открытие настроек Melgram")
 
 
 # ------------------------------------------------------------------ updates
@@ -284,9 +285,10 @@ def patch_updates():
         "    public static final int BUILD = %d;\n"
         "    public static final String VERSION = \"%s\";\n"
         "    public static final String UPDATE_URL = \"%s\";\n"
-        "    public static final String CONTACT = \"%s\";\n\n"
+        "    public static final String CONTACT = \"%s\";\n"
+        "    public static final String[] DISABLED_FEATURES = {%s};\n\n"
         "    private MelgramBuild() {\n    }\n"
-        "}\n" % (BUILD, version, url, CONTACT))
+        "}\n" % (BUILD, version, url, CONTACT, ", ".join('"%s"' % k for k in DISABLED)))
     write(os.path.join(JAVA, "org", "telegram", "messenger", "MelgramBuild.java"), java)
     print("[melgram] %-55s %s, сборка %d" % ("версия Melgram", version, BUILD))
 
@@ -298,6 +300,161 @@ def patch_updates():
 
 
 
+# ------------------------------------------------------------------ soft features
+#
+# Optional features (from Nekogram and Melgram's own). If a future Telegram
+# version moves the code a feature hooks into, the feature is skipped instead
+# of failing the build; the app then shows it as unavailable.
+
+DISABLED = []
+MC = "org.telegram.messenger.MelgramConfig"
+J = "TMessagesProj/src/main/java/org/telegram/"
+
+
+def soft_feature(key, label, edits):
+    """edits: (path, pattern, replacement) - pattern must match exactly once;
+    replacement None only checks that the pattern exists."""
+    staged = {}
+    for path, pattern, repl in edits:
+        full = os.path.join(SRC, path)
+        if full not in staged:
+            if not os.path.exists(full):
+                return _skip(key, label, "нет файла " + path)
+            staged[full] = read(full)
+        matches = len(re.findall(pattern, staged[full]))
+        if matches != 1:
+            return _skip(key, label, "место правки в %s найдено %d раз" % (os.path.basename(path), matches))
+        if repl is not None:
+            staged[full] = re.sub(pattern, repl, staged[full])
+    for full, text in staged.items():
+        write(full, text)
+    print("[melgram] %-55s ok" % label)
+
+
+def _skip(key, label, why):
+    DISABLED.append(key)
+    print("[melgram] %-55s ПРОПУЩЕНО: %s" % (label, why))
+    print("::warning::Melgram: функция «%s» пропущена (%s)" % (label, why))
+
+
+def after(code):
+    return lambda m: m.group(0) + code
+
+
+def patch_features():
+    soft_feature("hide_stories", "скрыть истории", [
+        (J + "ui/Stories/StoriesController.java", r"public boolean hasStories\(\) \{",
+         after("\n        if (%s.hideStories()) return false;" % MC)),
+    ])
+    soft_feature("time_seconds", "время с секундами", [
+        (J + "messenger/LocaleController.java", r"public FastDateFormat getFormatterDayWithSeconds\(\)", None),
+        (J + "messenger/LocaleController.java", r"public FastDateFormat getFormatterDay\(\) \{",
+         after("\n        if (%s.timeWithSeconds()) return getFormatterDayWithSeconds();" % MC)),
+    ])
+    soft_feature("no_number_rounding", "точные числа", [
+        (J + "messenger/LocaleController.java", r"public static String formatShortNumber\(int number, int\[\] rounded\) \{",
+         after("\n        if (%s.noNumberRounding()) { if (rounded != null) rounded[0] = number; return String.valueOf(number); }" % MC)),
+    ])
+    soft_feature("no_jump_next_channel", "не переходить к следующему каналу", [
+        (J + "ui/ChatActivity.java", r"final boolean allowPullingDownScroll = ",
+         after("!%s.noJumpToNextChannel() && " % MC)),
+    ])
+    soft_feature("hide_keyboard_on_scroll", "прятать клавиатуру при прокрутке", [
+        (J + "ui/ChatActivity.java", r"\} else if \(newState == RecyclerView\.SCROLL_STATE_DRAGGING\) \{(?=\s*\n\s*pollHintCell = null;)",
+         after("\n                        if (%s.hideKeyboardOnScroll()) {\n"
+               "                            if (isKeyboardVisible()) {\n"
+               "                                AndroidUtilities.hideKeyboard(getParentActivity() != null ? getParentActivity().getCurrentFocus() : null);\n"
+               "                            } else if (chatActivityEnterView != null) {\n"
+               "                                chatActivityEnterView.hidePopup(true);\n"
+               "                            }\n"
+               "                        }" % MC)),
+    ])
+    soft_feature("ask_before_call", "спрашивать перед звонком", [
+        (J + "ui/Components/AlertsCreator.java", r"public static void createCallDialogAlert\(BaseFragment fragment, TLRPC\.User user, boolean videoCall\)", None),
+        (J + "ui/Components/voip/VoIPHelper.java",
+         r"public static void startCall\(TLRPC\.User user, boolean videoCall, boolean canVideoCall, final Activity activity, TLRPC\.UserFull userFull, AccountInstance accountInstance\) \{",
+         after("\n\t\tif (user != null && %s.shouldAskBeforeCall(user.id) && activity instanceof org.telegram.ui.LaunchActivity) {\n"
+               "\t\t\torg.telegram.ui.ActionBar.BaseFragment melgramLast = ((org.telegram.ui.LaunchActivity) activity).getActionBarLayout().getLastFragment();\n"
+               "\t\t\tif (melgramLast != null) {\n"
+               "\t\t\t\t%s.markCallAsked(user.id);\n"
+               "\t\t\t\torg.telegram.ui.Components.AlertsCreator.createCallDialogAlert(melgramLast, user, videoCall);\n"
+               "\t\t\t\treturn;\n"
+               "\t\t\t}\n"
+               "\t\t}" % (MC, MC))),
+    ])
+    soft_feature("silence_non_contacts", "без звука от незнакомых", [
+        (J + "messenger/NotificationsController.java", r"\n(\s*)if \(!notifyDisabled && dialog_id == override_dialog_id && chat != null\) \{",
+         lambda m: "\n" + m.group(1) + "if (%s.silenceNonContacts() && chat == null && getContactsController().contactsDict.get(userId) == null) {\n" % MC
+                   + m.group(1) + "    notifyDisabled = true;\n" + m.group(1) + "}" + m.group(0)),
+    ])
+    gv = J + "ui/Components/ChatGreetingsView.java"
+    soft_feature("no_greeting_sticker", "убрать стикер-приветствие", [
+        (gv, r"\n(\s*)boolean wasDraw;", lambda m: m.group(0) + "\n" + m.group(1) + "boolean showGreetings = !%s.noGreetingSticker();" % MC),
+        (gv, r"addView\(titleView, LayoutHelper\.createLinear\(LayoutHelper\.WRAP_CONTENT, LayoutHelper\.WRAP_CONTENT, Gravity\.CENTER_HORIZONTAL, 20, 6, 20, 6\)\);",
+         lambda m: "addView(titleView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER_HORIZONTAL, 20, showGreetings || preview ? 6 : -2, 20, 6));"),
+        (gv, r"if \(getMeasuredHeight\(\) > MeasureSpec\.getSize\(heightMeasureSpec\) && !preview\) \{",
+         lambda m: "if ((!showGreetings || getMeasuredHeight() > MeasureSpec.getSize(heightMeasureSpec)) && !preview) {"),
+    ])
+    soft_feature("no_appbar_shadow", "без тени под верхней панелью", [
+        (J + "ui/ActionBar/ActionBarLayout.java", r"headerShadowDrawable = getResources\(\)\.getDrawable\(R\.drawable\.header_shadow\)\.mutate\(\);",
+         lambda m: "headerShadowDrawable = %s.noAppBarShadow() ? null : getResources().getDrawable(R.drawable.header_shadow).mutate();" % MC),
+    ])
+    soft_feature("no_gooey_avatar", "без жидкой анимации аватара", [
+        (J + "ui/ProfileActivity.java", r"\} else \{(?=\s*\n\s*avatarGooey\.setPullProgress\(pullUpProgress\);)",
+         lambda m: "} else if (%s.noGooeyAvatar()) {\n"
+                   "            avatarGooey.setAlpha(MathUtils.clamp(1f - (pullUpProgress - 0.5f) / 0.5f, 0f, 1f));\n"
+                   "            avatarGooey.setBlurIntensity(0f);\n"
+                   "            avatarGooey.setGooeyEnabled(false);\n"
+                   "        } else {" % MC),
+    ])
+    soft_feature("no_media_preview", "без миниатюр в списке чатов", [
+        (J + "ui/Cells/DialogCell.java", r"private int thumbsCount;", None),
+        (J + "ui/Cells/DialogCell.java", r"public void updateMessageThumbs\(\) \{",
+         after("\n        if (%s.noMediaPreview()) { thumbsCount = 0; return; }" % MC)),
+    ])
+    soft_feature("tablet_mode", "режим планшета", [
+        (J + "messenger/AndroidUtilities.java", r"public static boolean isTabletForce\(\) \{",
+         after("\n        int melgramTablet = %s.tabletMode();\n"
+               "        if (melgramTablet != %s.TABLET_AUTO) return melgramTablet == %s.TABLET_ON;" % (MC, MC, MC))),
+    ])
+
+
+ICON_TITLES = ["Голубая", "Новогодняя", "Чикенбургер", "Мику и ретро-ПК", "Улыбка", "Банан-тюлень", "Ооо бля", "Подсолнухи"]
+
+
+def patch_icon_set():
+    """Built-in launcher icons, switchable in Telegram's own icon picker and in Melgram."""
+    count = len(ICON_TITLES)
+    enum = "".join('        MELGRAM_%d("MelgramIcon%d", R.mipmap.melgram_icon_%d_bg, R.drawable.melgram_transparent, R.string.AppIconMelgram%d),\n'
+                   % (n, n, n, n) for n in range(1, count + 1)).rstrip(",\n") + ";"
+    aliases = "".join(
+        '        <activity-alias\n'
+        '            android:enabled="false"\n'
+        '            android:name="org.telegram.messenger.MelgramIcon%d"\n'
+        '            android:targetActivity="org.telegram.ui.LaunchActivity"\n'
+        '            android:icon="@mipmap/melgram_icon_%d"\n'
+        '            android:roundIcon="@mipmap/melgram_icon_%d_round"\n'
+        '            android:exported="true">\n'
+        '            <intent-filter>\n'
+        '                <action android:name="android.intent.action.MAIN" />\n'
+        '                <category android:name="android.intent.category.LAUNCHER" />\n'
+        '                <category android:name="android.intent.category.MULTIWINDOW_LAUNCHER" />\n'
+        '            </intent-filter>\n'
+        '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n'
+        '        </activity-alias>\n\n' % (n, n, n) for n in range(1, count + 1))
+    strings = "".join('    <string name="AppIconMelgram%d">%s</string>\n' % (n, t) for n, t in enumerate(ICON_TITLES, start=1))
+    lic = J + "ui/LauncherIconController.java"
+    soft_feature("icon_set", "встроенные иконки (%d шт.)" % count, [
+        # default entry shows the Melgram picture; Telegram's own logo variants are replaced by ours
+        (lic, r'DEFAULT\("DefaultIcon", R\.drawable\.icon_background_sa, R\.mipmap\.icon_foreground_sa, R\.string\.AppIconDefault\),',
+         lambda m: 'DEFAULT("DefaultIcon", R.mipmap.melgram_icon_bg, R.drawable.melgram_transparent, R.string.AppIconDefault),'),
+        (lic, r'(?s)\n(\s*)VINTAGE\(.*?\);', lambda m: "\n" + enum),
+        ("TMessagesProj/src/main/AndroidManifest.xml", r'\n(\s*)<activity-alias\s*\n\s*android:enabled="true"\s*\n\s*android:name="org\.telegram\.messenger\.DefaultIcon"',
+         lambda m: "\n" + aliases + m.group(0).lstrip("\n")),
+        ("TMessagesProj/src/main/res/values/strings.xml", r"</resources>\s*$", lambda m: strings + "</resources>\n"),
+    ])
+
+
 def main():
     check_inputs()
     print("[melgram] исходники: " + SRC)
@@ -305,7 +462,11 @@ def main():
     patch_identity()
     patch_abis()
     patch_icon()
+    patch_icon_set()
+    patch_features()
     patch_updates()
+    if DISABLED:
+        print("[melgram] пропущены функции: " + ", ".join(DISABLED))
     print("\n[melgram] Готово: %s, пакет %s, аккаунтов: %d" % (NAME, PKG, ACCOUNTS))
 
 
