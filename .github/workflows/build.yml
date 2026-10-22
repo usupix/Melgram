@@ -1,8 +1,18 @@
 name: Собрать Melgram
 
 on:
+  # каждый день в 06:17 по Москве проверяем, не вышел ли новый Telegram
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
+      telegram:
+        description: "Какую версию Telegram взять"
+        type: choice
+        default: "текущая"
+        options:
+          - "текущая"
+          - "последняя"
       accounts:
         description: "Сколько аккаунтов"
         default: "6"
@@ -18,14 +28,70 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: melgram-build
+  cancel-in-progress: false
+
 env:
-  # Версия официального Telegram, на которой проверен Melgram (13.0.3)
-  TELEGRAM_COMMIT: 0aae959806c57be8ad457980f2a5c6277ff18635
+  ACCOUNTS: ${{ inputs.accounts || '6' }}
+  ABIS: ${{ inputs.abis || 'arm64-v8a' }}
+  CONTACT: miku_gf
 
 jobs:
+  plan:
+    name: Проверить версию Telegram
+    runs-on: ubuntu-24.04
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      commit: ${{ steps.plan.outputs.commit }}
+      version: ${{ steps.plan.outputs.version }}
+      is_update: ${{ steps.plan.outputs.is_update }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Что собирать
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          WANT: ${{ inputs.telegram || 'последняя' }}
+        run: |
+          CUR=$(jq -r '.telegram_commit' update.json)
+          BLOCKED=$(jq -r '.blocked.telegram_commit // ""' update.json)
+          LATEST=$(git ls-remote https://github.com/DrKLO/Telegram refs/heads/master | cut -f1)
+          test -n "$LATEST"
+          if [ "$WANT" = "текущая" ]; then TARGET=$CUR; else TARGET=$LATEST; fi
+          VERSION=$(curl -fsSL "https://raw.githubusercontent.com/DrKLO/Telegram/$TARGET/gradle.properties" | grep '^APP_VERSION_NAME=' | cut -d= -f2 | tr -d '\r')
+          test -n "$VERSION"
+          SKIP=false
+          if [ "$EVENT" = "schedule" ]; then
+            if [ "$TARGET" = "$CUR" ]; then echo "Новых версий Telegram нет"; SKIP=true; fi
+            if [ "$TARGET" = "$BLOCKED" ]; then echo "Telegram $VERSION уже отмечен как несовместимый, ждём исправления"; SKIP=true; fi
+          fi
+          IS_UPDATE=false; [ "$TARGET" != "$CUR" ] && IS_UPDATE=true
+          echo "Текущий: $CUR | Последний: $LATEST | Собираем: $TARGET ($VERSION) | обновление: $IS_UPDATE | пропуск: $SKIP"
+          { echo "skip=$SKIP"; echo "commit=$TARGET"; echo "version=$VERSION"; echo "is_update=$IS_UPDATE"; } >> "$GITHUB_OUTPUT"
+
+      # GitHub отключает расписание в репозиториях без коммитов 60 дней
+      - name: Не дать GitHub уснуть
+        if: steps.plan.outputs.skip == 'true'
+        run: |
+          LAST=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - LAST )) -gt $(( 45 * 86400 )) ]; then
+            jq --arg t "$(date -u +%FT%TZ)" '.checked_at = $t' update.json > u.tmp && mv u.tmp update.json
+            git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
+            git commit -qam "Проверка обновлений: без изменений"
+            git push -q
+          fi
+
   build:
+    name: Сборка
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      TELEGRAM_COMMIT: ${{ needs.plan.outputs.commit }}
+      TELEGRAM_VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - name: Файлы Melgram
         uses: actions/checkout@v4
@@ -68,7 +134,7 @@ jobs:
           (sudo fallocate -l 8G /mnt/melgram.swap && sudo chmod 600 /mnt/melgram.swap && sudo mkswap /mnt/melgram.swap && sudo swapon /mnt/melgram.swap) || true
           df -h / ; free -h
 
-      - name: Скачать исходники Telegram
+      - name: Скачать исходники Telegram ${{ needs.plan.outputs.version }}
         run: |
           git init -q telegram && cd telegram
           git remote add origin https://github.com/DrKLO/Telegram.git
@@ -93,8 +159,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ inputs.abis }}-${{ github.run_id }}
-          restore-keys: ccache-${{ inputs.abis }}-
+          key: ccache-${{ env.ABIS }}-${{ github.run_id }}
+          restore-keys: ccache-${{ env.ABIS }}-
 
       - name: Установить ccache
         run: |
@@ -102,26 +168,32 @@ jobs:
           ccache --set-config=max_size=6G
           ccache --set-config=compiler_check=string:ndk27.2.12479018
           ccache --zero-stats > /dev/null
-          ccache --show-stats | head -5 || true
 
       - name: Превратить Telegram в Melgram
+        id: patch
         env:
-          MELGRAM_CCACHE: "1"
           MELGRAM_API_ID: ${{ secrets.API_ID }}
           MELGRAM_API_HASH: ${{ secrets.API_HASH }}
-          MELGRAM_ACCOUNTS: ${{ inputs.accounts }}
-          MELGRAM_ABIS: ${{ inputs.abis }}
-        run: python3 kit/melgram/patch.py telegram
+          MELGRAM_ACCOUNTS: ${{ env.ACCOUNTS }}
+          MELGRAM_ABIS: ${{ env.ABIS }}
+          MELGRAM_BUILD: ${{ github.run_number }}
+          MELGRAM_REPO: ${{ github.repository }}
+          MELGRAM_CONTACT: ${{ env.CONTACT }}
+          MELGRAM_CCACHE: "1"
+        run: |
+          set -o pipefail
+          python3 kit/melgram/patch.py telegram 2>&1 | tee build.log
 
       - name: Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Сборка APK (около 1–2 часов)
+      - name: Сборка APK
+        id: gradle
         working-directory: telegram
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace --continue 2>&1 | tee ../build.log
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace --continue 2>&1 | tee -a ../build.log
 
       - name: Статистика кэша
         if: always()
@@ -132,16 +204,79 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ inputs.abis }}-${{ github.run_id }}
+          key: ccache-${{ env.ABIS }}-${{ github.run_id }}
 
-      - name: Ошибки сборки (лог в ветку build-logs)
+      - name: Подготовить файл
+        run: |
+          APK=$(find telegram/TMessagesProj_App/build/outputs/apk -name "*.apk" | head -n 1)
+          test -n "$APK"
+          mkdir -p out && cp "$APK" "out/Melgram-$TELEGRAM_VERSION.apk"
+          ls -lh out
+
+      - name: Сохранить как артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: Melgram-${{ env.TELEGRAM_VERSION }}
+          path: out/*.apk
+
+      - name: Опубликовать в Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${TELEGRAM_VERSION}-build${{ github.run_number }}"
+          gh release create "$TAG" out/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "Melgram ${TELEGRAM_VERSION} (сборка ${{ github.run_number }})" \
+            --notes "Основан на Telegram ${TELEGRAM_VERSION}. Аккаунтов: ${ACCOUNTS}. Архитектура: ${ABIS}."
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Сообщить приложениям о новой версии (update.json)
+        working-directory: kit
+        run: |
+          APK_NAME="Melgram-${TELEGRAM_VERSION}.apk"
+          git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
+          git checkout -q -- . 2>/dev/null || true
+          git pull -q --rebase origin main
+          # при пересборке текущей версии не теряем отметку о несовместимой новой версии
+          KEEP_BLOCKED=$(jq -c '.blocked // null' update.json)
+          [ "${{ needs.plan.outputs.is_update }}" = "true" ] && KEEP_BLOCKED=null
+          jq -n \
+            --argjson blocked "$KEEP_BLOCKED" \
+            --arg version "$TELEGRAM_VERSION" \
+            --argjson build ${{ github.run_number }} \
+            --arg commit "$TELEGRAM_COMMIT" \
+            --arg apk "https://github.com/${{ github.repository }}/releases/download/${TAG}/${APK_NAME}" \
+            --arg page "https://github.com/${{ github.repository }}/releases/tag/${TAG}" \
+            --arg t "$(date -u +%FT%TZ)" \
+            '{version: $version, build: $build, telegram_commit: $commit, apk_url: $apk, release_page: $page, built_at: $t, blocked: $blocked}' > update.json
+          cat update.json
+          git add update.json
+          git commit -qm "Melgram ${TELEGRAM_VERSION} (сборка ${{ github.run_number }})"
+          git push -q origin HEAD:main
+
+      - name: Обновление невозможно (update.json)
+        if: failure() && needs.plan.outputs.is_update == 'true' && (steps.patch.outcome == 'failure' || steps.gradle.outcome == 'failure')
+        working-directory: kit
+        run: |
+          git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
+          git checkout -q -- . 2>/dev/null || true
+          git pull -q --rebase origin main || true
+          MSG=$(printf 'Вышла новая версия Telegram %s, но в ней изменилось много функций, и Melgram не может обновиться автоматически.\n\nДля обновления напишите @%s.' "$TELEGRAM_VERSION" "$CONTACT")
+          jq --arg v "$TELEGRAM_VERSION" --arg c "$TELEGRAM_COMMIT" --arg m "$MSG" --arg contact "$CONTACT" --arg t "$(date -u +%FT%TZ)" \
+            '.blocked = {telegram_version: $v, telegram_commit: $c, message: $m, contact: $contact, since: $t}' update.json > u.tmp && mv u.tmp update.json
+          cat update.json
+          git commit -qam "Telegram ${TELEGRAM_VERSION}: обновление невозможно, нужна ручная правка"
+          git push -q origin HEAD:main
+
+      - name: Лог ошибок (ветка build-logs)
         if: failure()
         run: |
           test -f build.log || exit 0
           grep -n -E "error:|e: file|What went wrong|FAILED|Exception|OutOfMemory|Killed|No space left|\[melgram\] ОШИБКА" build.log \
             | grep -v -E "^[0-9]+:\s*at " | head -n 40 > errors.txt || true
           head -n 12 errors.txt | while IFS= read -r line; do echo "::error::${line:0:900}"; done
-          cd kit
+          rm -rf logs && git clone -q --depth 1 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" logs
+          cd logs
           git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
           git checkout -q --orphan build-logs
           git rm -rq --cached . || true
@@ -150,27 +285,3 @@ jobs:
           git add -f build.log errors.txt
           git commit -qm "Лог сборки ${{ github.run_number }}"
           git push -qf origin build-logs
-
-      - name: Подготовить файл
-        run: |
-          APK=$(find telegram/TMessagesProj_App/build/outputs/apk -name "*.apk" | head -n 1)
-          test -n "$APK"
-          VERSION=$(grep '^APP_VERSION_NAME=' telegram/gradle.properties | cut -d= -f2)
-          mkdir -p out && cp "$APK" "out/Melgram-$VERSION.apk"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          ls -lh out
-
-      - name: Сохранить как артефакт
-        uses: actions/upload-artifact@v4
-        with:
-          name: Melgram-${{ env.VERSION }}
-          path: out/*.apk
-
-      - name: Опубликовать в Releases (удобно скачать с телефона)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v${VERSION}-build${{ github.run_number }}" out/*.apk \
-            --repo "${{ github.repository }}" \
-            --title "Melgram ${VERSION} (сборка ${{ github.run_number }})" \
-            --notes "Аккаунтов: ${{ inputs.accounts }}. Архитектура: ${{ inputs.abis }}."
