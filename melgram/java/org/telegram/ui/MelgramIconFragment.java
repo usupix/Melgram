@@ -168,7 +168,7 @@ public class MelgramIconFragment extends UniversalFragment {
             final Bitmap result = picture;
             AndroidUtilities.runOnUIThread(() -> {
                 busy = false;
-                if (isFinishing()) return;
+                if (isFinishing() || getParentActivity() == null) return;
                 if (result == null) {
                     bulletin(R.raw.error, "Не получилось открыть эту картинку");
                     return;

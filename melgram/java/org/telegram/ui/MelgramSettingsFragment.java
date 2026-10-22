@@ -41,6 +41,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
     }
 
     private static final Option[] CHAT_OPTIONS = {
+            new Option(MelgramConfig.SCROLL_TOP_BUTTON, "Кнопка «Наверх»", "Появляется, когда пролистал список чатов вниз", true),
             new Option(MelgramConfig.HIDE_STORIES, "Скрыть истории", "Без ленты историй над списком чатов", false),
             new Option(MelgramConfig.TIME_SECONDS, "Время с секундами", "У сообщений и в списке чатов: 12:34:56", false),
             new Option(MelgramConfig.NO_JUMP_NEXT_CHANNEL, "Не переходить к следующему каналу", "Свайп в конце канала не открывает следующий", false),
@@ -48,7 +49,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
             new Option(MelgramConfig.SILENCE_NON_CONTACTS, "Без звука от незнакомых", "Сообщения не из контактов приходят тихо", false),
             new Option(MelgramConfig.NO_GREETING_STICKER, "Убрать стикер-приветствие", "В новом пустом чате", false),
             new Option(MelgramConfig.HIDE_KEYBOARD_ON_SCROLL, "Прятать клавиатуру", "Когда начинаешь листать чат", false),
-            new Option(MelgramConfig.NO_NUMBER_ROUNDING, "Точные числа", "1234 просмотра вместо 1.2K", false),
+            new Option(MelgramConfig.NO_NUMBER_ROUNDING, "Точные числа", "34,355 просмотров вместо 34K", false),
     };
 
     private static final Option[] DESIGN_OPTIONS = {

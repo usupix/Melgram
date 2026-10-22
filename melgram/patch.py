@@ -324,7 +324,7 @@ def patch_features():
     ])
     soft_feature("no_number_rounding", "точные числа", [
         (J + "messenger/LocaleController.java", r"public static String formatShortNumber\(int number, int\[\] rounded\) \{",
-         after("\n        if (%s.noNumberRounding()) { if (rounded != null) rounded[0] = number; return String.valueOf(number); }" % MC)),
+         after("\n        if (%s.noNumberRounding()) { if (rounded != null) rounded[0] = number; return %s.formatExact(number); }" % (MC, MC))),
     ])
     soft_feature("no_jump_next_channel", "не переходить к следующему каналу", [
         (J + "ui/ChatActivity.java", r"final boolean allowPullingDownScroll = ",
@@ -382,6 +382,21 @@ def patch_features():
         (J + "ui/Cells/DialogCell.java", r"private int thumbsCount;", None),
         (J + "ui/Cells/DialogCell.java", r"public void updateMessageThumbs\(\) \{",
          after("\n        if (%s.noMediaPreview()) { thumbsCount = 0; return; }" % MC)),
+    ])
+    da = J + "ui/DialogsActivity.java"
+    st = "org.telegram.ui.MelgramScrollTop"
+    soft_feature("scroll_top_button", "кнопка «Наверх» в списке чатов", [
+        (J + "ui/Components/FragmentFloatingButton.java", r"public static FrameLayout\.LayoutParams createSubButtonLayoutParams\(\)", None),
+        (da, r"contentView\.addView\(floatingButtonStories, FragmentFloatingButton\.createSubButtonLayoutParams\(\)\);",
+         after("\n        %s.create(context, resourceProvider, contentView, DialogsActivity.this);" % st)),
+        (da, r"viewPage\.addView\(viewPage\.listView, LayoutHelper\.createFrame\(LayoutHelper\.MATCH_PARENT, LayoutHelper\.MATCH_PARENT\)\);",
+         after("\n            %s.watch(DialogsActivity.this, viewPage.listView);" % st)),
+        (da, r"final float baseTranslationY = top\s*- floatingButtonPanOffset;",
+         after("\n        %s.updateOffset(DialogsActivity.this, baseTranslationY, floatingButtonStories);" % st)),
+        (da, r"final boolean isVisible = !\(onlySelect && initialDialogsType != 10[^;]*;",
+         after("\n        %s.setAllowed(DialogsActivity.this, isVisible);" % st)),
+        (da, r"floatingButtonStories\.updateColors\(\);",
+         after("\n                %s.updateColors(DialogsActivity.this);" % st)),
     ])
     soft_feature("tablet_mode", "режим планшета", [
         (J + "messenger/AndroidUtilities.java", r"public static boolean isTabletForce\(\) \{",

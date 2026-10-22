@@ -3,9 +3,14 @@ package org.telegram.messenger;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
- * Melgram options. Every option is off by default, so Melgram behaves like the
- * official Telegram until the user turns something on in "Настройки Melgram".
+ * Melgram options. Almost every option is off by default, so Melgram behaves like
+ * the official Telegram until the user turns something on in "Настройки Melgram".
  * The small hooks patched into Telegram's code call the static getters below.
  */
 public final class MelgramConfig {
@@ -21,6 +26,7 @@ public final class MelgramConfig {
     public static final String NO_GREETING_STICKER = "no_greeting_sticker";
     public static final String HIDE_KEYBOARD_ON_SCROLL = "hide_keyboard_on_scroll";
     public static final String NO_NUMBER_ROUNDING = "no_number_rounding";
+    public static final String SCROLL_TOP_BUTTON = "scroll_top_button"; // on by default
     // appearance
     public static final String NO_APPBAR_SHADOW = "no_appbar_shadow";
     public static final String NO_GOOEY_AVATAR = "no_gooey_avatar";
@@ -33,6 +39,8 @@ public final class MelgramConfig {
     public static final int TABLET_OFF = 2;
 
     private static volatile SharedPreferences prefs;
+    // hooks run on hot paths (every message bind), so values are cached in memory
+    private static final ConcurrentHashMap<String, Boolean> cache = new ConcurrentHashMap<>();
 
     private static long askedCallUser;
     private static long askedCallTime;
@@ -53,32 +61,59 @@ public final class MelgramConfig {
         return p;
     }
 
+    private static boolean defaultValue(String key) {
+        return SCROLL_TOP_BUTTON.equals(key);
+    }
+
     public static boolean get(String key) {
+        Boolean cached = cache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        boolean def = defaultValue(key);
         try {
             SharedPreferences p = prefs();
-            return p != null && p.getBoolean(key, false);
+            if (p == null) {
+                return def;
+            }
+            boolean value = p.getBoolean(key, def);
+            cache.put(key, value);
+            return value;
         } catch (Throwable e) {
-            return false;
+            return def;
         }
     }
 
     public static void set(String key, boolean value) {
+        cache.put(key, value);
         SharedPreferences p = prefs();
         if (p != null) {
             p.edit().putBoolean(key, value).apply();
         }
     }
 
+    private static final ConcurrentHashMap<String, Integer> intCache = new ConcurrentHashMap<>();
+
     public static int getInt(String key, int def) {
+        Integer cached = intCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
         try {
             SharedPreferences p = prefs();
-            return p != null ? p.getInt(key, def) : def;
+            if (p == null) {
+                return def;
+            }
+            int value = p.getInt(key, def);
+            intCache.put(key, value);
+            return value;
         } catch (Throwable e) {
             return def;
         }
     }
 
     public static void setInt(String key, int value) {
+        intCache.put(key, value);
         SharedPreferences p = prefs();
         if (p != null) {
             p.edit().putInt(key, value).apply();
@@ -113,6 +148,30 @@ public final class MelgramConfig {
 
     public static boolean noNumberRounding() {
         return get(NO_NUMBER_ROUNDING);
+    }
+
+    public static boolean scrollTopButton() {
+        return get(SCROLL_TOP_BUTTON);
+    }
+
+    private static final ThreadLocal<DecimalFormat> exactFormat = new ThreadLocal<DecimalFormat>() {
+        @Override
+        protected DecimalFormat initialValue() {
+            DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.US);
+            symbols.setGroupingSeparator(',');
+            DecimalFormat format = new DecimalFormat("#,##0", symbols);
+            format.setGroupingUsed(true);
+            return format;
+        }
+    };
+
+    /** 34355 -> "34,355": exact numbers stay readable. */
+    public static String formatExact(long number) {
+        try {
+            return exactFormat.get().format(number);
+        } catch (Throwable e) {
+            return String.valueOf(number);
+        }
     }
 
     public static boolean noAppBarShadow() {

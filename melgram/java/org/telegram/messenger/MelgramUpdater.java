@@ -57,6 +57,10 @@ public final class MelgramUpdater {
         check(activity, true);
     }
 
+    private static boolean alive(Activity activity) {
+        return activity != null && !activity.isFinishing() && !activity.isDestroyed();
+    }
+
     public static String versionText() {
         return MelgramBuild.VERSION + " (сборка " + MelgramBuild.BUILD + ")";
     }
@@ -64,7 +68,7 @@ public final class MelgramUpdater {
     // ------------------------------------------------------------------ check
 
     private static void check(Activity activity, boolean manual) {
-        if (activity == null || activity.isFinishing() || checking || downloading) {
+        if (!alive(activity) || checking || downloading) {
             return;
         }
         if (MelgramBuild.UPDATE_URL.isEmpty()) {
@@ -90,8 +94,12 @@ public final class MelgramUpdater {
             final JSONObject result = info;
             AndroidUtilities.runOnUIThread(() -> {
                 checking = false;
-                if (activity.isFinishing()) return;
-                onResult(activity, prefs, result, manual);
+                if (!alive(activity)) return;
+                try {
+                    onResult(activity, prefs, result, manual);
+                } catch (Throwable e) {
+                    FileLog.e(e);
+                }
             });
         }, "melgram-update-check").start();
     }
@@ -139,7 +147,14 @@ public final class MelgramUpdater {
         dialog(activity)
                 .setTitle("Доступно обновление")
                 .setMessage(text)
-                .setPositiveButton("Обновить", (d, w) -> download(activity, apkUrl, build))
+                .setPositiveButton("Обновить", (d, w) -> {
+                    try {
+                        download(activity, apkUrl, build);
+                    } catch (Throwable e) {
+                        FileLog.e(e);
+                        downloading = false;
+                    }
+                })
                 .setNegativeButton("Позже", (d, w) -> prefs.edit()
                         .putInt("later_build", build)
                         .putLong("later_time", System.currentTimeMillis())
@@ -268,7 +283,7 @@ public final class MelgramUpdater {
                     progress.dismiss();
                 } catch (Throwable ignore) {
                 }
-                if (activity.isFinishing() || wasCancelled) return;
+                if (!alive(activity) || wasCancelled) return;
                 if (finalError != null) {
                     toast(activity, "Не получилось скачать обновление: " + finalError);
                 } else {

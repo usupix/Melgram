@@ -238,7 +238,7 @@ public class MelgramToneFragment extends UniversalFragment {
             final String finalError = error;
             AndroidUtilities.runOnUIThread(() -> {
                 busy = false;
-                if (isFinishing()) return;
+                if (isFinishing() || getParentActivity() == null) return;
                 if (finalError != null || result == null) {
                     status = "Не получилось открыть файл: " + finalError;
                 } else if (result.tooLong) {
@@ -359,7 +359,7 @@ public class MelgramToneFragment extends UniversalFragment {
             final String finalError = error;
             AndroidUtilities.runOnUIThread(() -> {
                 busy = false;
-                if (isFinishing()) return;
+                if (isFinishing() || getParentActivity() == null) return;
                 if (finalError != null || file == null) {
                     status = "Не получилось: " + finalError;
                     bulletin(R.raw.error, "Не получилось сделать звук");
