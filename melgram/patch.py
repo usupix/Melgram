@@ -222,36 +222,7 @@ def patch_icon():
     n = copy_tree(os.path.join(HERE, "res"), RES)
     print("[melgram] %-55s %d файлов" % ("иконка и ресурсы Melgram", n))
     n = copy_tree(os.path.join(HERE, "java"), JAVA)
-    print("[melgram] %-55s %d файлов" % ("экран выбора иконки", n))
-
-    activity = ""
-    for cls, label, exported in (("MelgramIconActivity", "@string/MelgramIconLong", "true"),
-                                 ("MelgramSettingsActivity", "@string/MelgramSettingsTitle", "false"),
-                                 ("MelgramToneActivity", "@string/MelgramToneTitle", "false")):
-        activity += (
-            '        <activity\n'
-            '            android:name="org.telegram.messenger.%s"\n'
-            '            android:label="%s"\n'
-            '            android:theme="@android:style/Theme.Material.Light.NoActionBar"\n'
-            '            android:exported="%s" />\n' % (cls, label, exported))
-    rx("TMessagesProj/src/main/AndroidManifest.xml", r"</application>", lambda m: activity + "\n    </application>",
-       label="регистрация экранов Melgram")
-
-    # Long press on the app icon -> "Сменить иконку Melgram"
-    shortcut = (
-        r'\g<0>' + "\n"
-        '    <shortcut\n'
-        '        android:shortcutId="melgram_icon"\n'
-        '        android:enabled="true"\n'
-        '        android:icon="@drawable/melgram_shortcut_icon"\n'
-        '        android:shortcutShortLabel="@string/MelgramIconShort"\n'
-        '        android:shortcutLongLabel="@string/MelgramIconLong">\n'
-        '        <intent\n'
-        '            android:action="android.intent.action.VIEW"\n'
-        '            android:targetPackage="%s"\n'
-        '            android:targetClass="org.telegram.messenger.MelgramIconActivity" />\n'
-        '    </shortcut>\n' % PKG)
-    rx("TMessagesProj/src/main/res/xml/shortcuts.xml", r"<shortcuts[^>]*>", shortcut, label="ярлык по долгому нажатию")
+    print("[melgram] %-55s %d файлов" % ("код Melgram", n))
 
     # Settings -> "Иконка Melgram", right after Language
     sa = "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
@@ -264,7 +235,7 @@ def patch_icon():
     rx(sa,
        r"(\n(\s*)case 10:\s*\n\s*presentSettingFragment\(new LanguageSelectActivity\(\)\);\s*\n\s*break;)",
        lambda m: m.group(1) + "\n" + m.group(2) + "case 1001:\n" + m.group(2) +
-       "    if (getParentActivity() != null) getParentActivity().startActivity(new android.content.Intent(getParentActivity(), org.telegram.messenger.MelgramSettingsActivity.class));\n" +
+       "    presentSettingFragment(new org.telegram.ui.MelgramSettingsFragment());\n" +
        m.group(2) + "    break;",
        label="открытие настроек Melgram")
 

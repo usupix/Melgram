@@ -1,7 +1,6 @@
 package org.telegram.messenger;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -11,14 +10,15 @@ import android.os.Build;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
 import org.json.JSONObject;
+import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
+import org.telegram.ui.Components.LineProgressView;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -128,10 +128,7 @@ public final class MelgramUpdater {
     // ------------------------------------------------------------------ dialogs
 
     private static AlertDialog.Builder dialog(Activity activity) {
-        int theme = Theme.isCurrentThemeDark()
-                ? android.R.style.Theme_Material_Dialog_Alert
-                : android.R.style.Theme_Material_Light_Dialog_Alert;
-        return new AlertDialog.Builder(activity, theme);
+        return new AlertDialog.Builder(activity);
     }
 
     private static void showUpdate(Activity activity, SharedPreferences prefs, JSONObject info, int build, String apkUrl) {
@@ -199,15 +196,16 @@ public final class MelgramUpdater {
 
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
-        int pad = AndroidUtilities.dp(22);
-        layout.setPadding(pad, AndroidUtilities.dp(12), pad, 0);
-        final ProgressBar bar = new ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);
-        bar.setIndeterminate(true);
-        layout.addView(bar);
+        int pad = AndroidUtilities.dp(24);
+        layout.setPadding(pad, AndroidUtilities.dp(8), pad, AndroidUtilities.dp(4));
+        final LineProgressView bar = new LineProgressView(activity);
+        bar.setProgressColor(Theme.getColor(Theme.key_featuredStickers_addButton));
+        bar.setBackColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2) & 0x33FFFFFF);
+        layout.addView(bar, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, AndroidUtilities.dp(3)));
         final TextView label = new TextView(activity);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        label.setPadding(0, AndroidUtilities.dp(8), 0, 0);
+        label.setTextColor(Theme.getColor(Theme.key_dialogTextGray3));
+        label.setPadding(0, AndroidUtilities.dp(10), 0, 0);
         label.setText("Подключаюсь…");
         layout.addView(label);
 
@@ -215,9 +213,10 @@ public final class MelgramUpdater {
         final AlertDialog progress = dialog(activity)
                 .setTitle("Скачиваю Melgram")
                 .setView(layout)
-                .setCancelable(false)
                 .setNegativeButton("Отмена", (d, w) -> cancelled[0] = true)
                 .show();
+        progress.setCanCancel(false);
+        progress.setCanceledOnTouchOutside(false);
 
         downloading = true;
         new Thread(() -> {
@@ -241,8 +240,7 @@ public final class MelgramUpdater {
                             final long mb = done / (1024 * 1024);
                             AndroidUtilities.runOnUIThread(() -> {
                                 if (percent >= 0) {
-                                    bar.setIndeterminate(false);
-                                    bar.setProgress(percent);
+                                    bar.setProgress(percent / 100f, true);
                                     label.setText(percent + "% · " + mb + " МБ");
                                 } else {
                                     label.setText(mb + " МБ");
