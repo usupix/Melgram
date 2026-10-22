@@ -32,6 +32,7 @@ public final class MelgramConfig {
     public static final String GHOST_TYPING = "ghost_typing";
     public static final String GHOST_OFFLINE = "ghost_offline";
     public static final String GHOST_STORIES = "ghost_stories";
+    public static final String GHOST_READ_AFTER_SEND = "ghost_read_after_send"; // on by default
     public static final String[] GHOST_KEYS = {GHOST_READ, GHOST_TYPING, GHOST_OFFLINE, GHOST_STORIES};
     // quiet hours
     public static final String QUIET_ENABLED = "quiet_enabled";
@@ -80,7 +81,7 @@ public final class MelgramConfig {
     }
 
     private static boolean defaultValue(String key) {
-        return SCROLL_TOP_BUTTON.equals(key);
+        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key);
     }
 
     public static boolean get(String key) {

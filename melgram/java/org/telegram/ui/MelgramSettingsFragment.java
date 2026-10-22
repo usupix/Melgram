@@ -42,6 +42,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_OPTION = 1000;
     private static final int ID_GHOST_ALL = 300;
     private static final int ID_GHOST = 310;
+    private static final int ID_GHOST_AFTER_SEND = 320;
     private static final int ID_QUIET = 400;
     private static final int ID_QUIET_FROM = 401;
     private static final int ID_QUIET_TO = 402;
@@ -148,8 +149,10 @@ public class MelgramSettingsFragment extends UniversalFragment {
             for (int i = 0; i < MelgramConfig.GHOST_KEYS.length; i++) {
                 items.add(UItem.asCheck(ID_GHOST + i, GHOST_TITLES[i]).setChecked(MelgramConfig.ghost(MelgramConfig.GHOST_KEYS[i])));
             }
-            items.add(UItem.asShadow("«Прочитано»: если ответишь в чате, Telegram сам отметит его прочитанным. " +
-                    "Прочитанное в режиме призрака останется непрочитанным у собеседника и на других твоих устройствах. " +
+            items.add(UItem.asCheck(ID_GHOST_AFTER_SEND, "Прочитать после отправки").setChecked(MelgramConfig.get(MelgramConfig.GHOST_READ_AFTER_SEND)).setEnabled(MelgramConfig.ghost(MelgramConfig.GHOST_READ)));
+            items.add(UItem.asShadow("«Прочитать после отправки»: когда отвечаешь в чате, он честно отмечается прочитанным — иначе собеседник видел бы ответ без прочтения. " +
+                    "Прочитать любой чат по-настоящему можно в его меню «⋮» → «Прочитать для собеседника». " +
+                    "Быстро включить или выключить призрака — в меню «⋮» на главном экране. " +
                     "«Не в сети» не скрывает время последнего визита — его настраивают в «Конфиденциальность» → «Время захода»."));
         }
 
@@ -241,6 +244,12 @@ public class MelgramSettingsFragment extends UniversalFragment {
             String key = MelgramConfig.GHOST_KEYS[item.id - ID_GHOST];
             boolean value = !MelgramConfig.ghost(key);
             MelgramConfig.set(key, value);
+            if (view instanceof TextCheckCell) ((TextCheckCell) view).setChecked(value);
+            listView.adapter.update(true);
+        } else if (item.id == ID_GHOST_AFTER_SEND) {
+            if (!MelgramConfig.ghost(MelgramConfig.GHOST_READ)) return;
+            boolean value = !MelgramConfig.get(MelgramConfig.GHOST_READ_AFTER_SEND);
+            MelgramConfig.set(MelgramConfig.GHOST_READ_AFTER_SEND, value);
             if (view instanceof TextCheckCell) ((TextCheckCell) view).setChecked(value);
             listView.adapter.update(true);
         } else if (item.id == ID_TAP_IN || item.id == ID_TAP_OUT) {

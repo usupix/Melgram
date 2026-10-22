@@ -416,6 +416,19 @@ def patch_features():
          after("\n        if (org.telegram.messenger.MelgramGhost.intercept(currentAccount, object, onComplete, onCompleteTimestamp)) return;")),
     ])
     ca = J + "ui/ChatActivity.java"
+    gu = "org.telegram.ui.MelgramGhostUi"
+    soft_feature("ghost_quick", "быстрый переключатель призрака", [
+        (J + "ui/DialogsActivity.java", r"\n(\s*)io\.addGap\(\);(?=\s*\n\s*io\.add\(R\.drawable\.outline_groups_24, getString\(R\.string\.NewGroup\))",
+         lambda m: "\n" + m.group(1) + "%s.addMenuItem(this, io);" % gu + m.group(0)),
+        (J + "ui/MainTabsActivity.java", r"\n(\s*)if \(UserConfig\.getActivatedAccountsCount\(\) < UserConfig\.MAX_ACCOUNT_COUNT\) \{(?=\s*\n\s*o\.add\(R\.drawable\.msg_addbot)",
+         lambda m: "\n" + m.group(1) + "%s.addMenuItem(this, o);" % gu + m.group(0)),
+    ])
+    soft_feature("ghost_read_menu", "«Прочитать для собеседника» в меню чата", [
+        (ca, r"translateItem = headerItem\.lazilyAddSubItem\(translate, R\.drawable\.msg_translate, LocaleController\.getString\(R\.string\.TranslateMessage\)\);",
+         after("\n            if (%s.ghost(%s.GHOST_READ) && !DialogObject.isEncryptedDialog(dialog_id)) headerItem.lazilyAddSubItem(%s.MENU_READ, R.drawable.msg_markread, \"Прочитать для собеседника\");" % (MC, MC, gu))),
+        (ca, r"\} else if \(id == report\) \{",
+         lambda m: "} else if (id == %s.MENU_READ) {\n                    %s.readForReal(ChatActivity.this, dialog_id);\n                " % (gu, gu) + m.group(0)),
+    ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
          after("""
