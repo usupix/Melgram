@@ -154,6 +154,15 @@ public final class MelgramConfig {
         return get(SCROLL_TOP_BUTTON);
     }
 
+    /** Per-account switch for Telegram's background ("push") connection. */
+    public static boolean backgroundDisabled(int account) {
+        return get("bg_off_" + account);
+    }
+
+    public static void setBackgroundDisabled(int account, boolean disabled) {
+        set("bg_off_" + account, disabled);
+    }
+
     private static final ThreadLocal<DecimalFormat> exactFormat = new ThreadLocal<DecimalFormat>() {
         @Override
         protected DecimalFormat initialValue() {

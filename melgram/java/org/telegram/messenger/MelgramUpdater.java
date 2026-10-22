@@ -87,7 +87,17 @@ public final class MelgramUpdater {
         new Thread(() -> {
             JSONObject info = null;
             try {
-                info = new JSONObject(httpGetString(MelgramBuild.UPDATE_URL + "?t=" + now));
+                // GitHub API first: it is not cached for minutes like raw.githubusercontent.com
+                if (!MelgramBuild.UPDATE_API_URL.isEmpty()) {
+                    try {
+                        info = new JSONObject(httpGetString(MelgramBuild.UPDATE_API_URL, "application/vnd.github.raw"));
+                    } catch (Throwable e) {
+                        info = null;
+                    }
+                }
+                if (info == null) {
+                    info = new JSONObject(httpGetString(MelgramBuild.UPDATE_URL + "?t=" + now, null));
+                }
             } catch (Throwable e) {
                 FileLog.e(e);
             }
@@ -325,12 +335,19 @@ public final class MelgramUpdater {
     // ------------------------------------------------------------------ helpers
 
     private static HttpURLConnection open(String url) throws Exception {
+        return open(url, null);
+    }
+
+    private static HttpURLConnection open(String url, String accept) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setInstanceFollowRedirects(true);
         c.setConnectTimeout(20000);
         c.setReadTimeout(30000);
         c.setRequestProperty("User-Agent", "Melgram/" + MelgramBuild.VERSION);
         c.setRequestProperty("Cache-Control", "no-cache");
+        if (accept != null) {
+            c.setRequestProperty("Accept", accept);
+        }
         int code = c.getResponseCode();
         if (code < 200 || code >= 300) {
             c.disconnect();
@@ -339,8 +356,8 @@ public final class MelgramUpdater {
         return c;
     }
 
-    private static String httpGetString(String url) throws Exception {
-        HttpURLConnection c = open(url);
+    private static String httpGetString(String url, String accept) throws Exception {
+        HttpURLConnection c = open(url, accept);
         try (InputStream in = c.getInputStream()) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[8192];

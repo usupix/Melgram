@@ -2,10 +2,16 @@ package org.telegram.ui;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.view.View;
 
 import org.telegram.messenger.MelgramConfig;
 import org.telegram.messenger.MelgramUpdater;
+import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.UserObject;
+import org.telegram.tgnet.ConnectionsManager;
+import org.telegram.tgnet.TLRPC;
 import org.telegram.messenger.R;
 import org.telegram.ui.Cells.NotificationsCheckCell;
 import org.telegram.ui.Cells.TextCheckCell;
@@ -24,6 +30,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_TONE = 3;
     private static final int ID_UPDATE = 4;
     private static final int ID_TABLET = 100;
+    private static final int ID_BACKGROUND = 200;
     private static final int ID_OPTION = 1000;
 
     private static final class Option {
@@ -105,6 +112,24 @@ public class MelgramSettingsFragment extends UniversalFragment {
         }
         items.add(UItem.asShadow("Пункты с пометкой ↻ применяются после перезапуска Melgram."));
 
+        if (MelgramConfig.isAvailable("account_background")) {
+            boolean global = globalBackgroundConnection();
+            items.add(UItem.asHeader("Фоновое соединение"));
+            for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                UserConfig config = UserConfig.getInstance(a);
+                if (!config.isClientActivated()) continue;
+                TLRPC.User user = config.getCurrentUser();
+                String name = user != null ? UserObject.getUserName(user) : "Аккаунт " + (a + 1);
+                boolean on = !MelgramConfig.backgroundDisabled(a);
+                String sub = !global ? "Выключено для всех в настройках уведомлений"
+                        : on ? "Новые сообщения приходят в фоне" : "Только когда Melgram открыт";
+                items.add(UItem.asButtonCheck(ID_BACKGROUND + a, name, sub).setChecked(global && on));
+            }
+            items.add(UItem.asShadow("Держит связь с Telegram, когда Melgram свёрнут, чтобы уведомления приходили сразу. " +
+                    "Выключи у второстепенных аккаунтов, чтобы экономить батарею: их сообщения придут, когда откроешь Melgram. " +
+                    "Общий переключатель — «Уведомления и звуки» → «Фоновое соединение»."));
+        }
+
         if (MelgramConfig.isAvailable("tablet_mode")) {
             int mode = MelgramConfig.tabletMode();
             items.add(UItem.asHeader("Режим планшета ↻"));
@@ -145,6 +170,23 @@ public class MelgramSettingsFragment extends UniversalFragment {
             presentFragment(new MelgramToneFragment());
         } else if (item.id == ID_UPDATE) {
             MelgramUpdater.checkManual(getParentActivity());
+        } else if (item.id >= ID_BACKGROUND && item.id < ID_BACKGROUND + UserConfig.MAX_ACCOUNT_COUNT) {
+            int account = item.id - ID_BACKGROUND;
+            if (!globalBackgroundConnection()) {
+                BulletinFactory.of(this).createSimpleBulletin(R.raw.info, "Сначала включи «Фоновое соединение» в настройках уведомлений").show();
+                return;
+            }
+            boolean disable = !MelgramConfig.backgroundDisabled(account);
+            MelgramConfig.setBackgroundDisabled(account, disable);
+            try {
+                ConnectionsManager cm = ConnectionsManager.getInstance(account);
+                cm.setPushConnectionEnabled(cm.isPushConnectionEnabled());
+            } catch (Throwable ignore) {
+            }
+            if (view instanceof NotificationsCheckCell) {
+                ((NotificationsCheckCell) view).setChecked(!disable);
+            }
+            listView.adapter.update(true);
         } else if (item.id >= ID_TABLET && item.id <= ID_TABLET + MelgramConfig.TABLET_OFF) {
             int mode = item.id - ID_TABLET;
             if (mode != MelgramConfig.tabletMode()) {
@@ -171,6 +213,19 @@ public class MelgramSettingsFragment extends UniversalFragment {
     @Override
     protected boolean onLongClick(UItem item, View view, int position, float x, float y) {
         return false;
+    }
+
+    /** Telegram's own global "Background connection" setting (same rule as ConnectionsManager). */
+    private static boolean globalBackgroundConnection() {
+        try {
+            SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
+            if (preferences.contains("pushConnection")) {
+                return preferences.getBoolean("pushConnection", true);
+            }
+            return MessagesController.getMainSettings(UserConfig.selectedAccount).getBoolean("backgroundConnection", false);
+        } catch (Throwable e) {
+            return true;
+        }
     }
 
     private void showRestartHint() {
