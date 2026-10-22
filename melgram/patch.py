@@ -118,9 +118,28 @@ def patch_identity():
 
     rx("gradle.properties", r"(?m)^APP_PACKAGE=.*$", "APP_PACKAGE=" + PKG, label="имя пакета")
 
-    # google-services.json must list our package or the gradle plugin refuses to build
-    for gs in glob.glob(os.path.join(SRC, "*", "google-services.json")):
-        rx(gs, r'"org\.telegram\.messenger', '"' + PKG, label="google-services.json")
+    # google-services.json must list our package or the gradle plugin refuses to build.
+    # The library module still looks up "org.telegram.messenger", so the original
+    # clients are kept and copies with the Melgram package are added next to them.
+    import json
+    found = 0
+    for gs in glob.glob(os.path.join(SRC, "**", "google-services.json"), recursive=True):
+        data = json.loads(read(gs))
+        clients = data.get("client", [])
+        extra = []
+        for c in clients:
+            name = c["client_info"]["android_client_info"]["package_name"]
+            if name.startswith("org.telegram.messenger"):
+                copy = json.loads(json.dumps(c))
+                copy["client_info"]["android_client_info"]["package_name"] = PKG + name[len("org.telegram.messenger"):]
+                extra.append(copy)
+        known = {c["client_info"]["android_client_info"]["package_name"] for c in clients}
+        clients.extend(e for e in extra if e["client_info"]["android_client_info"]["package_name"] not in known)
+        write(gs, json.dumps(data, indent=2))
+        found += 1
+        print("[melgram] %-55s %s (+%d)" % ("google-services.json", os.path.relpath(gs, SRC), len(extra)))
+    if found == 0:
+        fail("не найден google-services.json")
 
     # Only the main app module is built; the others need Huawei/HockeyApp setup
     rx("settings.gradle", r"(?m)^include ':TMessagesProj_App(Huawei|HockeyApp|Standalone|Tests)'\s*$\n?", "",

@@ -121,7 +121,7 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace 2>&1 | tee ../build.log
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --no-daemon --stacktrace --continue 2>&1 | tee ../build.log
 
       - name: Статистика кэша
         if: always()
