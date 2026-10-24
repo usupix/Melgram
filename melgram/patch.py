@@ -486,6 +486,25 @@ def patch_features():
         (ca, r"messagePreviewParams\.updateForward\(messageObjectsToForward, dialog_id\);",
          after("\n                if (%s.takePanelNoQuote() && messagePreviewParams != null) messagePreviewParams.hideForwardSendersName = true;" % MC)),
     ])
+    pa = J + "ui/ProfileActivity.java"
+    pid = "org.telegram.ui.MelgramProfileId"
+    soft_feature("profile_id", "ID в профиле", [
+        (pa, r"private int usernameRow;", after("\n    private int melgramIdRow = -1;")),
+        (pa, r"\n(\s*)usernameRow = -1;", lambda m: m.group(0) + "\n" + m.group(1) + "melgramIdRow = -1;"),
+        (pa, r"if \(user != null && username != null\) \{\s*\n\s*usernameRow = rowCount\+\+;\s*\n\s*\}",
+         after("\n                if (%s.showProfileId()) melgramIdRow = rowCount++;" % MC)),
+        (pa, r"if \(chatInfo != null && \(!TextUtils\.isEmpty\(chatInfo\.about\) \|\| chatInfo\.location instanceof TLRPC\.TL_channelLocation\) \|\| ChatObject\.isPublic\(currentChat\)\) \{",
+         lambda m: m.group(0).replace("if (chatInfo != null", "if (%s.showProfileId() || chatInfo != null" % MC, 1)),
+        (pa, r"if \(ChatObject\.isPublic\(currentChat\)\) \{\s*\n\s*usernameRow = rowCount\+\+;\s*\n\s*\}",
+         after("\n                if (%s.showProfileId()) melgramIdRow = rowCount++;" % MC)),
+        (pa, r"\} else if \(position == phoneRow \|\| position == locationRow \|\| position == numberRow \|\| position == birthdayRow\) \{",
+         lambda m: m.group(0).replace("position == birthdayRow)", "position == birthdayRow || position == melgramIdRow)")),
+        (pa, r"boolean containsGift = false;\s*\n\s*if \(position == birthdayRow\) \{",
+         lambda m: m.group(0).replace("if (position == birthdayRow) {",
+             "if (position == melgramIdRow) {\n                        %s.bind(detailCell, currentAccount, userId, chatId);\n                    } else if (position == birthdayRow) {" % pid)),
+        (pa, r"\} else if \(position == usernameRow\) \{\s*\n\s*processOnClickOrPress\(position, view, x, y\);",
+         lambda m: "} else if (position == melgramIdRow) {\n                %s.copy(ProfileActivity.this, userId, chatId);\n            " % pid + m.group(0)),
+    ])
     soft_feature("tablet_mode", "режим планшета", [
         (J + "messenger/AndroidUtilities.java", r"public static boolean isTabletForce\(\) \{",
          after("\n        int melgramTablet = %s.tabletMode();\n"

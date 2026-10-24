@@ -27,6 +27,7 @@ public final class MelgramConfig {
     public static final String HIDE_KEYBOARD_ON_SCROLL = "hide_keyboard_on_scroll";
     public static final String NO_NUMBER_ROUNDING = "no_number_rounding";
     public static final String SCROLL_TOP_BUTTON = "scroll_top_button"; // on by default
+    public static final String PROFILE_ID = "profile_id"; // on by default
     // ghost mode
     public static final String GHOST_READ = "ghost_read";
     public static final String GHOST_TYPING = "ghost_typing";
@@ -81,7 +82,7 @@ public final class MelgramConfig {
     }
 
     private static boolean defaultValue(String key) {
-        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key);
+        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key);
     }
 
     public static boolean get(String key) {
@@ -167,6 +168,10 @@ public final class MelgramConfig {
 
     public static boolean noNumberRounding() {
         return get(NO_NUMBER_ROUNDING);
+    }
+
+    public static boolean showProfileId() {
+        return get(PROFILE_ID);
     }
 
     public static boolean scrollTopButton() {

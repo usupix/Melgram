@@ -74,6 +74,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
 
     private static final Option[] CHAT_OPTIONS = {
             new Option(MelgramConfig.SCROLL_TOP_BUTTON, "Кнопка «Наверх»", "Появляется, когда пролистал список чатов вниз", true),
+            new Option(MelgramConfig.PROFILE_ID, "ID в профиле", "Строка с ID и дата-центром у людей, групп и каналов", false),
             new Option(MelgramConfig.HIDE_STORIES, "Скрыть истории", "Без ленты историй над списком чатов", false),
             new Option(MelgramConfig.TIME_SECONDS, "Время с секундами", "У сообщений и в списке чатов: 12:34:56", false),
             new Option(MelgramConfig.NO_JUMP_NEXT_CHANNEL, "Не переходить к следующему каналу", "Свайп в конце канала не открывает следующий", false),
