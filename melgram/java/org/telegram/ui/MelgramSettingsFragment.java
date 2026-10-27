@@ -8,6 +8,7 @@ import android.view.View;
 import android.widget.LinearLayout;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.MelgramBattery;
 import org.telegram.messenger.MelgramConfig;
 import org.telegram.messenger.MelgramQuietHours;
 import org.telegram.messenger.MelgramUpdater;
@@ -37,6 +38,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_ICON = 2;
     private static final int ID_TONE = 3;
     private static final int ID_UPDATE = 4;
+    private static final int ID_BATTERY = 5;
     private static final int ID_TABLET = 100;
     private static final int ID_BACKGROUND = 200;
     private static final int ID_OPTION = 1000;
@@ -74,6 +76,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
 
     private static final Option[] CHAT_OPTIONS = {
             new Option(MelgramConfig.SCROLL_TOP_BUTTON, "Кнопка «Наверх»", "Появляется, когда пролистал список чатов вниз", true),
+            new Option(MelgramConfig.RICH_PASTE, "Вставка с форматированием", "Жирный, ссылки и премиум-эмодзи сохраняются и при вставке с клавиатуры", false),
             new Option(MelgramConfig.PROFILE_ID, "ID в профиле", "Строка с ID и дата-центром у людей, групп и каналов", false),
             new Option(MelgramConfig.HIDE_STORIES, "Скрыть истории", "Без ленты историй над списком чатов", false),
             new Option(MelgramConfig.TIME_SECONDS, "Время с секундами", "У сообщений и в списке чатов: 12:34:56", false),
@@ -123,6 +126,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
         items.add(UItem.asHeader("Melgram"));
         items.add(UItem.asButton(ID_ICON, R.drawable.msg_palette, "Иконка приложения"));
         items.add(UItem.asButton(ID_TONE, R.drawable.msg_tone_add, "Звук уведомления из файла"));
+        items.add(UItem.asButton(ID_BATTERY, R.drawable.msg2_battery, "Батарея", MelgramBattery.batteryLevel() >= 0 ? MelgramBattery.batteryLevel() + "%" : ""));
         items.add(UItem.asButton(ID_UPDATE, R.drawable.msg_retry, "Проверить обновления", MelgramUpdater.versionText()));
         items.add(UItem.asShadow(null));
 
@@ -231,6 +235,8 @@ public class MelgramSettingsFragment extends UniversalFragment {
             if (restart) showRestartHint();
         } else if (item.id == ID_ICON) {
             presentFragment(new MelgramIconFragment());
+        } else if (item.id == ID_BATTERY) {
+            presentFragment(new MelgramBatteryFragment());
         } else if (item.id == ID_TONE) {
             presentFragment(new MelgramToneFragment());
         } else if (item.id == ID_UPDATE) {

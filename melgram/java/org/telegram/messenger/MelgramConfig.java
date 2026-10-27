@@ -28,6 +28,9 @@ public final class MelgramConfig {
     public static final String NO_NUMBER_ROUNDING = "no_number_rounding";
     public static final String SCROLL_TOP_BUTTON = "scroll_top_button"; // on by default
     public static final String PROFILE_ID = "profile_id"; // on by default
+    public static final String RICH_PASTE = "rich_paste"; // on by default
+    public static final String LOWBAT_ENABLED = "lowbat_enabled";
+    public static final String LOWBAT_LEVEL = "lowbat_level";
     // ghost mode
     public static final String GHOST_READ = "ghost_read";
     public static final String GHOST_TYPING = "ghost_typing";
@@ -82,7 +85,7 @@ public final class MelgramConfig {
     }
 
     private static boolean defaultValue(String key) {
-        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key);
+        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key) || RICH_PASTE.equals(key);
     }
 
     public static boolean get(String key) {
@@ -271,9 +274,13 @@ public final class MelgramConfig {
         return String.format(Locale.US, "%02d:%02d", minutes / 60, minutes % 60);
     }
 
-    /** Background connection is off for this account: by its own switch or by quiet hours. */
+    public static int lowBatteryLevel() {
+        return getInt(LOWBAT_LEVEL, 20);
+    }
+
+    /** Background connection is off for this account: by its own switch, quiet hours or low battery. */
     public static boolean backgroundOff(int account) {
-        return backgroundDisabled(account) || inQuietHours(account);
+        return backgroundDisabled(account) || inQuietHours(account) || MelgramBattery.lowBatteryActive();
     }
 
     /** Per-account switch for Telegram's background ("push") connection. */

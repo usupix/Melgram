@@ -505,6 +505,20 @@ def patch_features():
         (pa, r"\} else if \(position == usernameRow\) \{\s*\n\s*processOnClickOrPress\(position, view, x, y\);",
          lambda m: "} else if (position == melgramIdRow) {\n                %s.copy(ProfileActivity.this, userId, chatId);\n            " % pid + m.group(0)),
     ])
+    au = J + "messenger/AndroidUtilities.java"
+    soft_feature("rich_paste", "вставка с форматированием", [
+        (au, r"public static boolean addToClipboard\(CharSequence plain, String html\) \{",
+         after("\n        org.telegram.messenger.MelgramClipboard.remember(plain, html);")),
+        (au, r'android\.content\.ClipData clip = android\.content\.ClipData\.newHtmlText\("label", str, CustomHtml\.toHtml\(\(Spanned\) str\)\);',
+         lambda m: 'String melgramHtml = CustomHtml.toHtml((Spanned) str);\n                org.telegram.messenger.MelgramClipboard.remember(str, melgramHtml);\n                android.content.ClipData clip = android.content.ClipData.newHtmlText("label", str, melgramHtml);'),
+        (J + "ui/Components/EditTextCaption.java", r"\n([ \t]*)@Override\s*\n\s*public boolean onTextContextMenuItem\(int id\) \{",
+         lambda m: "\n" + m.group(1) + "@Override\n" + m.group(1) + "public android.view.inputmethod.InputConnection onCreateInputConnection(android.view.inputmethod.EditorInfo outAttrs) {\n"
+                   + m.group(1) + "    return org.telegram.messenger.MelgramClipboard.wrap(this, super.onCreateInputConnection(outAttrs));\n" + m.group(1) + "}\n" + m.group(0)),
+    ])
+    soft_feature("battery_stats", "статистика батареи", [
+        (J + "tgnet/ConnectionsManager.java", r"public static void onUnparsedMessageReceived\(long address, final int currentAccount, long messageId\) \{",
+         after("\n        org.telegram.messenger.MelgramBattery.onUpdate(currentAccount);")),
+    ])
     soft_feature("tablet_mode", "режим планшета", [
         (J + "messenger/AndroidUtilities.java", r"public static boolean isTabletForce\(\) \{",
          after("\n        int melgramTablet = %s.tabletMode();\n"

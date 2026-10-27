@@ -6,7 +6,7 @@ import android.os.Looper;
 import org.telegram.tgnet.ConnectionsManager;
 
 /**
- * Melgram: quiet hours. While quiet hours are on, the chosen accounts drop their
+ * Melgram: quiet hours and the low-battery saver. While quiet hours are on, the chosen accounts drop their
  * background connection and their notifications come without sound. A light
  * once-a-minute ticker re-applies the background connection when the window
  * starts or ends (only while Melgram's process is alive; a restarted process
@@ -23,11 +23,13 @@ public final class MelgramQuietHours {
         @Override
         public void run() {
             try {
+                MelgramBattery.refreshLowBattery();
+                MelgramBattery.flush();
                 applyAll(false);
             } catch (Throwable e) {
                 FileLog.e(e);
             }
-            if (MelgramConfig.quietEnabled()) {
+            if (needed()) {
                 handler.postDelayed(this, TICK_MS);
             } else {
                 running = false;
@@ -38,8 +40,12 @@ public final class MelgramQuietHours {
     private MelgramQuietHours() {
     }
 
+    private static boolean needed() {
+        return MelgramConfig.quietEnabled() || MelgramConfig.get(MelgramConfig.LOWBAT_ENABLED);
+    }
+
     public static void ensureTicker() {
-        if (running) {
+        if (running || !needed()) {
             return;
         }
         running = true;
@@ -53,7 +59,7 @@ public final class MelgramQuietHours {
                 if (!UserConfig.getInstance(a).isClientActivated()) {
                     continue;
                 }
-                boolean quiet = MelgramConfig.inQuietHours(a);
+                boolean quiet = MelgramConfig.backgroundOff(a);
                 if (force || lastState[a] == null || lastState[a] != quiet) {
                     lastState[a] = quiet;
                     ConnectionsManager cm = ConnectionsManager.getInstance(a);
