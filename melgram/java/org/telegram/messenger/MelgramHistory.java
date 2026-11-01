@@ -128,7 +128,8 @@ public final class MelgramHistory {
     ArrayList<Integer> keep=new ArrayList<>();
     for(int mid:ids)if(exists(account,dialog,mid,false))keep.add(mid);
     if(!keep.isEmpty()){
-      markDeleted(account,dialog,keep);
+      if(dialog!=0)markDeleted(account,dialog,keep);
+      else for(Integer mid:keep)markDeletedUnknown(account,mid);
       ids.removeAll(keep);
     }
   }
@@ -161,11 +162,17 @@ public final class MelgramHistory {
   }
   /** Display concise in-bubble marker; the actual message text stays intact. */
   public static CharSequence decorate(int account,TLRPC.Message message,CharSequence text){
-    if(message==null||text==null||message.id<=0)return text;
+    if(message==null||text==null||message.id<=0||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE))return text;
     long did=MessageObject.getDialogId(message);
-    if(wasDeleted(account,did,message.id))return "🗑 Удалено\n"+text;
-    if(hasEdits(account,did,message.id))return "✎ Изменено\n"+text;
-    return text;
+    boolean deleted=wasDeleted(account,did,message.id);
+    boolean edited=!deleted&&hasEdits(account,did,message.id);
+    if(!deleted&&!edited)return text;
+    String label=deleted?"🗑 Удалено\n":"✎ Изменено\n";
+    if(text.toString().startsWith(label))return text;
+    android.text.SpannableStringBuilder result=new android.text.SpannableStringBuilder(label);
+    result.setSpan(new android.text.style.ForegroundColorSpan(deleted?0xffdb4545:0xff438ccf),0,label.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    result.append(text);
+    return result;
   }
   private MelgramHistory(){}
 }
