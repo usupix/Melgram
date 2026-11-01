@@ -1,0 +1,96 @@
+package org.telegram.messenger;
+import android.content.*;
+import android.database.*;
+import android.database.sqlite.*;
+import org.telegram.tgnet.TLRPC;
+import java.util.*;
+import java.util.concurrent.*;
+/** Local-only text history; excludes disappearing and secret-chat messages. */
+public final class MelgramHistory {
+  private static final ExecutorService queue=Executors.newSingleThreadExecutor();
+  private static final Object lock=new Object();
+  private static SQLiteOpenHelper helper;
+  public static class Entry {
+    public long dialog,time; public int mid,kind; public String before,after;
+    Entry(Cursor c){dialog=c.getLong(0);mid=c.getInt(1);kind=c.getInt(2);before=c.getString(3);after=c.getString(4);time=c.getLong(5);}
+  }
+  private static SQLiteDatabase db(){
+    Context ctx=ApplicationLoader.applicationContext;
+    if(ctx==null)return null;
+    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,1){
+      public void onCreate(SQLiteDatabase d){
+        d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
+        d.execSQL("CREATE TABLE events(account INTEGER,dialog INTEGER,mid INTEGER,kind INTEGER,before_text TEXT,after_text TEXT,time INTEGER)");
+      }
+      public void onUpgrade(SQLiteDatabase d,int a,int b){}
+    };
+    return helper.getWritableDatabase();
+  }
+  private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after){
+    ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
+    v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
+  }
+  private static void save(SQLiteDatabase d,int a,TLRPC.Message m){
+    if(m==null||m.id<=0||m.ttl>0||m.noforwards||m.action!=null)return;
+    long did=MessageObject.getDialogId(m);
+    if(did==0||DialogObject.isEncryptedDialog(did))return;
+    String text=m.message==null?"":m.message.toString();
+    if(text.length()>16384)text=text.substring(0,16384);
+    String[] args={""+a,""+did,""+m.id};
+    Cursor c=d.rawQuery("SELECT text,edit_date,deleted FROM messages WHERE account=? AND dialog=? AND mid=?",args);
+    String old=null;int oldEdit=0,deleted=0;
+    try{if(c.moveToFirst()){old=c.getString(0);oldEdit=c.getInt(1);deleted=c.getInt(2);}}finally{c.close();}
+    ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",did);v.put("mid",m.id);v.put("text",text);v.put("edit_date",m.edit_date);
+    if(old==null){v.put("deleted",0);d.insertWithOnConflict("messages",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
+    else if(deleted==0&&m.edit_date>=oldEdit&&!old.equals(text)){
+      if(MelgramConfig.get(MelgramConfig.HISTORY_EDITS))event(d,a,did,m.id,1,old,text);
+      d.update("messages",v,"account=? AND dialog=? AND mid=?",args);
+    }
+  }
+  public static void capture(int account,TLRPC.Message message){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||message==null)return;
+    captureBatch(account,java.util.Collections.singletonList(message));
+  }
+  public static void captureBatch(int account,List<TLRPC.Message> messages){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||messages==null)return;
+    final ArrayList<TLRPC.Message> copy=new ArrayList<>(messages);
+    queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
+      for(TLRPC.Message m:copy)save(d,account,m);
+    }catch(Exception e){FileLog.e(e);}}});
+  }
+  public static void markDeleted(int account,long dialog,List<Integer> ids){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||dialog==0)return;
+    ArrayList<Integer> copy=new ArrayList<>(ids);
+    queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
+      for(int mid:copy)delete(d,account,dialog,mid);
+    }catch(Exception e){FileLog.e(e);}}});
+  }
+  private static void delete(SQLiteDatabase d,int a,long dialog,int id){
+    String[] args={""+a,""+dialog,""+id};
+    Cursor c=d.rawQuery("SELECT text FROM messages WHERE account=? AND dialog=? AND mid=? AND deleted=0",args);
+    String old=null;try{if(c.moveToFirst())old=c.getString(0);}finally{c.close();}
+    if(old==null)return;
+    ContentValues v=new ContentValues();v.put("deleted",1);
+    d.update("messages",v,"account=? AND dialog=? AND mid=?",args);event(d,a,dialog,id,2,old,"");
+  }
+  public static void markDeletedThrough(int a,long dialog,int mid){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES))return;
+    queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
+      Cursor c=d.rawQuery("SELECT mid FROM messages WHERE account=? AND dialog=? AND mid<=? AND deleted=0",new String[]{""+a,""+dialog,""+mid});
+      ArrayList<Integer> ids=new ArrayList<>();try{while(c.moveToNext())ids.add(c.getInt(0));}finally{c.close();}
+      for(int id:ids)delete(d,a,dialog,id);
+    }catch(Exception e){FileLog.e(e);}}});
+  }
+  public static ArrayList<Entry> recent(int a,long dialog,int limit){
+    ArrayList<Entry> out=new ArrayList<>();
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return out;
+      Cursor c=d.rawQuery("SELECT dialog,mid,kind,before_text,after_text,time FROM events WHERE account=?"+(dialog==0?"":" AND dialog=?")+" ORDER BY rowid DESC LIMIT "+Math.min(500,Math.max(1,limit)),
+        dialog==0?new String[]{""+a}:new String[]{""+a,""+dialog});
+      try{while(c.moveToNext())out.add(new Entry(c));}finally{c.close();}
+    }catch(Exception e){FileLog.e(e);}}return out;
+  }
+  public static void clear(int a){
+    synchronized(lock){try{SQLiteDatabase d=db();if(d!=null){d.delete("messages","account=?",new String[]{""+a});d.delete("events","account=?",new String[]{""+a});}}catch(Exception e){FileLog.e(e);}}
+  }
+  private MelgramHistory(){}
+}
