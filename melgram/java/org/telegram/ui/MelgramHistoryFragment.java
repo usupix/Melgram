@@ -7,12 +7,14 @@ import java.util.*;
 public class MelgramHistoryFragment extends UniversalFragment {
   private static final int CLEAR=1,ITEM=1000;
   private final long dialog;
+  private final int messageId;
   private final ArrayList<MelgramHistory.Entry> entries=new ArrayList<>();
-  public MelgramHistoryFragment(){this(0);}
-  public MelgramHistoryFragment(long dialog){this.dialog=dialog;}
-  @Override protected CharSequence getTitle(){return dialog==0?"История сообщений":"История чата";}
+  public MelgramHistoryFragment(){this(0,0);}
+  public MelgramHistoryFragment(long dialog){this(dialog,0);}
+  public MelgramHistoryFragment(long dialog,int messageId){this.dialog=dialog;this.messageId=messageId;}
+  @Override protected CharSequence getTitle(){return messageId>0?"История правок":dialog==0?"История сообщений":"История чата";}
   @Override protected void fillItems(ArrayList<UItem> items,UniversalAdapter adapter){
-    entries.clear();entries.addAll(MelgramHistory.recent(UserConfig.selectedAccount,dialog,200));
+    entries.clear();entries.addAll(messageId>0?MelgramHistory.forMessage(UserConfig.selectedAccount,dialog,messageId):MelgramHistory.recent(UserConfig.selectedAccount,dialog,200));
     items.add(UItem.asHeader("Удалённые и изменённые"));
     items.add(UItem.asShadow("История хранится на устройстве отдельно от кеша Telegram. Сохраняется только текст и подписи."));
     if(entries.isEmpty())items.add(UItem.asShadow("История пуста. Включи сохранение, чтобы видеть новые удаления и правки."));
