@@ -486,13 +486,19 @@ def patch_features():
          r"public void postNotificationName\(final int id, Object\.\.\. args\) \{",
          after("\n        if (id == messagesDeleted) org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args);")),
     ])
-    soft_feature("history_bubble_marker", "отметка удаления и редактирования внутри сообщения", [
-        (J + "messenger/MessageObject.java",
-         r"updateMessageText\(users, chats, sUsers, sChats\);\s*\n\s*setType\(\);",
-         lambda m: "updateMessageText(users, chats, sUsers, sChats);\n"
-                   "        messageText = org.telegram.messenger.MelgramHistory.decorate(currentAccount, messageOwner, messageText);\n"
-                   "        setType();"),
-    ])
+    # Draw the badge above the bubble rather than changing formatted text/entity offsets.
+    melgram_cell = J + "ui/Cells/ChatMessageCell.java"
+    melgram_cell_source = read(os.path.join(SRC, melgram_cell))
+    if not re.search(r"\bonDrawForeground\s*\(", melgram_cell_source):
+        soft_feature("history_bubble_marker", "цветные метки на пузырях сообщений", [
+            (melgram_cell, r"public class ChatMessageCell[^\{]*\{",
+             after("\n    @Override\n    protected void onDrawForeground(android.graphics.Canvas canvas) {\n"
+                   "        super.onDrawForeground(canvas);\n"
+                   "        org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getWidth());\n"
+                   "    }\n")),
+        ])
+    else:
+        _skip("history_bubble_marker", "цветные метки на пузырях сообщений", "существует onDrawForeground")
     soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
         (J + "ui/ChatActivity.java",
          r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
