@@ -429,6 +429,49 @@ def patch_features():
         (ca, r"\} else if \(id == report\) \{",
          lambda m: "} else if (id == %s.MENU_READ) {\n                    %s.readForReal(ChatActivity.this, dialog_id);\n                " % (gu, gu) + m.group(0)),
     ])
+
+    # Optional local-history hooks. The SQLite archive is separate from Telegram's cache.
+    ms = J + "messenger/MessagesStorage.java"
+    mh = "org.telegram.messenger.MelgramHistory"
+    soft_feature("history_new", "история новых сообщений", [
+        (ms, r"private void putMessagesInternal\(ArrayList<TLRPC\.Message> messages, boolean withTransaction, boolean doNotUpdateDialogDate, int downloadMask, boolean ifNoLastMessage, int mode, long threadMessageId\) \{",
+         after("\n        if (mode == ChatActivity.MODE_DEFAULT) %s.captureBatch(currentAccount, messages);" % mh)),
+    ])
+    soft_feature("history_loaded", "история загруженных сообщений", [
+        (ms, r"public void putMessages\(TLRPC\.messages_Messages messages, long dialogId, int load_type, int max_id, boolean createDialog, int mode, long threadMessageId\) \{",
+         after("\n        if (mode == ChatActivity.MODE_DEFAULT && messages != null) %s.captureBatch(currentAccount, messages.messages);" % mh)),
+    ])
+    soft_feature("history_edit", "история правок", [
+        (ms, r"public void replaceMessageIfExists\(TLRPC\.Message message, ArrayList<TLRPC\.User> users, ArrayList<TLRPC\.Chat> chats, boolean broadcast\) \{",
+         after("\n        %s.capture(currentAccount, message);" % mh)),
+    ])
+    soft_feature("history_deleted", "история удаления", [
+        (ms, r"private ArrayList<Long> markMessagesAsDeletedInternal\(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId\) \{",
+         after("\n        if (mode == ChatActivity.MODE_DEFAULT) %s.markDeleted(currentAccount, dialogId, messages);" % mh)),
+    ])
+    soft_feature("history_deleted_precise", "сохранить перед удалением", [
+        (ms, r"int mid = cursor\.intValue\(5\);\s*\n\s*unknownMessages\.remove\(\(Integer\) mid\);",
+         after("\n                        try {\n"
+               "                            NativeByteBuffer buf = cursor.byteBufferValue(1);\n"
+               "                            if (buf != null) {\n"
+               "                                TLRPC.Message old = TLRPC.Message.TLdeserialize(buf, buf.readInt32(false), false);\n"
+               "                                if (old != null) { if (old.dialog_id == 0) old.dialog_id = did; %s.capture(currentAccount, old); }\n"
+               "                                buf.reuse();\n"
+               "                            }\n"
+               "                        } catch (Throwable ignored) { }\n"
+               "                        %s.markDeleted(currentAccount, did, java.util.Collections.singletonList(mid));" % (mh, mh))),
+    ])
+    soft_feature("history_deleted_channel", "история очистки канала", [
+        (ms, r"private ArrayList<Long> markMessagesAsDeletedInternal\(long channelId, int mid, boolean deleteFiles\) \{",
+         after("\n        %s.markDeletedThrough(currentAccount, -channelId, mid);" % mh)),
+    ])
+    ca = J + "ui/ChatActivity.java"
+    soft_feature("history_chat_menu", "просмотр истории чата", [
+        (ca, r"translateItem = headerItem\.lazilyAddSubItem\(translate, R\.drawable\.msg_translate, LocaleController\.getString\(R\.string\.TranslateMessage\)\);",
+         after("\n            if (!DialogObject.isEncryptedDialog(dialog_id)) headerItem.lazilyAddSubItem(18009511, R.drawable.msg_edit, \"История чата\");")),
+        (ca, r"\} else if \(id == report\) \{",
+         lambda m: "} else if (id == 18009511) {\n                    presentFragment(new org.telegram.ui.MelgramHistoryFragment(dialog_id));\n                " + m.group(0)),
+    ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
          after("""
