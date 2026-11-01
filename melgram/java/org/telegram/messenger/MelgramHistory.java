@@ -9,6 +9,23 @@ import java.util.concurrent.*;
 public final class MelgramHistory {
   private static final ExecutorService queue=Executors.newSingleThreadExecutor();
   private static final Object lock=new Object();
+  private static final java.util.concurrent.ConcurrentHashMap<String,Integer> badges=new java.util.concurrent.ConcurrentHashMap<>();
+  private static String badgeKey(int a,long dialog,int mid){return a+":"+dialog+":"+mid;}
+  private static int badgeState(int a,long dialog,int mid){
+    String key=badgeKey(a,dialog,mid);
+    Integer cached=badges.get(key);if(cached!=null)return cached;
+    int result=0;
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return 0;
+      Cursor c=d.rawQuery("SELECT deleted FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",new String[]{""+a,""+dialog,""+mid});
+      try{if(c.moveToFirst()&&c.getInt(0)!=0)result=2;}finally{c.close();}
+      if(result==0){
+        c=d.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",new String[]{""+a,""+dialog,""+mid});
+        try{if(c.moveToFirst())result=1;}finally{c.close();}
+      }
+    }catch(Exception e){FileLog.e(e);}}
+    if(badges.size()>12000)badges.clear();
+    badges.put(key,result);return result;
+  }
   private static SQLiteOpenHelper helper;
   public static class Entry {
     public long dialog,time; public int mid,kind; public String before,after;
@@ -17,18 +34,20 @@ public final class MelgramHistory {
   private static SQLiteDatabase db(){
     Context ctx=ApplicationLoader.applicationContext;
     if(ctx==null)return null;
-    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,1){
+    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,2){
       public void onCreate(SQLiteDatabase d){
         d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
         d.execSQL("CREATE TABLE events(account INTEGER,dialog INTEGER,mid INTEGER,kind INTEGER,before_text TEXT,after_text TEXT,time INTEGER)");
+        d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
       }
-      public void onUpgrade(SQLiteDatabase d,int a,int b){}
+      public void onUpgrade(SQLiteDatabase d,int a,int b){if(a<2)d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");}
     };
     return helper.getWritableDatabase();
   }
   private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after){
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
     v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
+    badges.put(badgeKey(a,dialog,id),kind==2?2:1);
   }
   private static void save(SQLiteDatabase d,int a,TLRPC.Message m){
     if(m==null||m.id<=0||m.ttl>0||m.noforwards||m.action!=null)return;
@@ -90,6 +109,7 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);}}return out;
   }
   public static void clear(int a){
+    for(String key:new java.util.ArrayList<>(badges.keySet()))if(key.startsWith(a+":"))badges.remove(key);
     synchronized(lock){try{SQLiteDatabase d=db();if(d!=null){d.delete("messages","account=?",new String[]{""+a});d.delete("events","account=?",new String[]{""+a});}}catch(Exception e){FileLog.e(e);}}
   }
   /** True only for messages already recorded locally. */
@@ -102,15 +122,10 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);return false;}}
   }
   public static boolean wasDeleted(int a,long dialog,int mid){
-    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&exists(a,dialog,mid,true);
+    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&badgeState(a,dialog,mid)==2;
   }
   public static boolean hasEdits(int a,long dialog,int mid){
-    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED))return false;
-    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return false;
-      Cursor c=d.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",
-       new String[]{""+a,""+dialog,""+mid});
-      try{return c.moveToFirst();}finally{c.close();}
-    }catch(Exception e){FileLog.e(e);return false;}}
+    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&badgeState(a,dialog,mid)==1;
   }
   public static ArrayList<Entry> forMessage(int a,long dialog,int mid){
     ArrayList<Entry> out=new ArrayList<>();
