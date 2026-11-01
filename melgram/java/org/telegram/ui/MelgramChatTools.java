@@ -13,6 +13,7 @@ import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MessageObject;
+import org.telegram.messenger.MelgramHistory;
 import org.telegram.messenger.R;
 import org.telegram.ui.Components.BulletinFactory;
 
@@ -26,6 +27,7 @@ public final class MelgramChatTools {
     public static final int OPTION_FORWARD_NOQUOTE = 9101;
     public static final int OPTION_SAVE_STICKER = 9102;
     public static final int OPTION_SAVE_ROUND = 9103;
+    public static final int OPTION_HISTORY = 9104;
 
     private MelgramChatTools() {
     }
@@ -36,6 +38,11 @@ public final class MelgramChatTools {
         try {
             if (message == null) {
                 return;
+            }
+            if (message.messageOwner != null && (message.isEdited() || MelgramHistory.hasEdits(message.currentAccount, message.getDialogId(), message.getId()) || MelgramHistory.wasDeleted(message.currentAccount, message.getDialogId(), message.getId()))) {
+                items.add("История изменений");
+                options.add(OPTION_HISTORY);
+                icons.add(R.drawable.msg_edit);
             }
             if (canForward && !noforwards) {
                 items.add("Переслать без автора");
@@ -65,11 +72,15 @@ public final class MelgramChatTools {
 
     /** @return true when the option was handled here (the menu must then be closed). */
     public static boolean handleOption(ChatActivity fragment, int option, MessageObject message) {
-        if (option != OPTION_SAVE_STICKER && option != OPTION_SAVE_ROUND) {
+        if (option != OPTION_SAVE_STICKER && option != OPTION_SAVE_ROUND && option != OPTION_HISTORY) {
             return false;
         }
         Activity activity = fragment.getParentActivity();
         if (activity == null || message == null) {
+            return true;
+        }
+        if (option == OPTION_HISTORY) {
+            fragment.presentFragment(new MelgramHistoryFragment(message.getDialogId(), message.getId()));
             return true;
         }
         if (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 28
