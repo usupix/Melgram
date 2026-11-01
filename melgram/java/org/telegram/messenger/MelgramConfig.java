@@ -89,7 +89,7 @@ public final class MelgramConfig {
     }
 
     private static boolean defaultValue(String key) {
-        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key) || RICH_PASTE.equals(key) || HISTORY_DELETES.equals(key) || HISTORY_EDITS.equals(key) || HISTORY_INLINE.equals(key);
+        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key) || RICH_PASTE.equals(key) || HISTORY_ENABLED.equals(key) || HISTORY_DELETES.equals(key) || HISTORY_EDITS.equals(key) || HISTORY_INLINE.equals(key);
     }
 
     public static boolean get(String key) {
