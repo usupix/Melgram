@@ -51,8 +51,12 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_QUIET_ACCOUNT = 410;
     private static final int ID_TAP_IN = 500;
     private static final int ID_TAP_OUT = 501;
+    private static final int ID_HISTORY_ENABLED = 600;
+    private static final int ID_HISTORY_DELETES = 601;
+    private static final int ID_HISTORY_EDITS = 602;
+    private static final int ID_HISTORY_VIEW = 603;
 
-    private static final String[] GHOST_TITLES = {"Не отправлять «прочитано»", "Не показывать «печатает…»", "Всегда «не в сети»", "Смотреть истории незаметно"};
+    private static final String[] GHOST_TITLES = {"Не читать сообщения", "Не отправлять «печатает…»", "Не отправлять статус «в сети»", "Не читать истории"};
     private static final String[] GHOST_SUBTITLES = {
             "Собеседник не увидит, что ты прочитал сообщение",
             "И «записывает голосовое», «отправляет фото»",
@@ -142,6 +146,12 @@ public class MelgramSettingsFragment extends UniversalFragment {
                 ? "В меню сообщения (долгое нажатие) появились «Переслать без автора» и сохранение стикеров и кружков в галерею."
                 : null));
 
+        items.add(UItem.asHeader("История сообщений"));
+        items.add(UItem.asButtonCheck(ID_HISTORY_ENABLED, "Сохранять историю", "Локальный архив текста и подписей к медиа").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)));
+        items.add(UItem.asButtonCheck(ID_HISTORY_DELETES, "Удалённые сообщения", "Сохранять удалённые собеседником сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_DELETES)));
+        items.add(UItem.asButtonCheck(ID_HISTORY_EDITS, "История изменений", "Сохранять предыдущий текст сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)));
+        items.add(UItem.asButton(ID_HISTORY_VIEW, R.drawable.msg_edit, "Посмотреть историю"));
+        items.add(UItem.asShadow("Данные сохраняются только на телефоне, отдельно от кеша. Секретные и самоуничтожающиеся сообщения не сохраняются."));
         items.add(UItem.asHeader("Оформление"));
         for (int i = CHAT_OPTIONS.length; i < optionCount(); i++) {
             items.add(optionItem(i));
@@ -152,7 +162,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
             items.add(UItem.asHeader("Режим призрака"));
             items.add(UItem.asButtonCheck(ID_GHOST_ALL, "Режим призрака", "Все пункты ниже разом").setChecked(allGhost()));
             for (int i = 0; i < MelgramConfig.GHOST_KEYS.length; i++) {
-                items.add(UItem.asCheck(ID_GHOST + i, GHOST_TITLES[i]).setChecked(MelgramConfig.ghost(MelgramConfig.GHOST_KEYS[i])));
+                items.add(UItem.asButtonCheck(ID_GHOST + i, GHOST_TITLES[i], GHOST_SUBTITLES[i]).setChecked(MelgramConfig.ghost(MelgramConfig.GHOST_KEYS[i])));
             }
             items.add(UItem.asCheck(ID_GHOST_AFTER_SEND, "Прочитать после отправки").setChecked(MelgramConfig.get(MelgramConfig.GHOST_READ_AFTER_SEND)).setEnabled(MelgramConfig.ghost(MelgramConfig.GHOST_READ)));
             items.add(UItem.asShadow("«Прочитать после отправки»: когда отвечаешь в чате, он честно отмечается прочитанным — иначе собеседник видел бы ответ без прочтения. " +
@@ -241,6 +251,12 @@ public class MelgramSettingsFragment extends UniversalFragment {
             presentFragment(new MelgramToneFragment());
         } else if (item.id == ID_UPDATE) {
             MelgramUpdater.checkManual(getParentActivity());
+        } else if (item.id == ID_HISTORY_VIEW) {
+            presentFragment(new MelgramHistoryFragment());
+        } else if (item.id == ID_HISTORY_ENABLED || item.id == ID_HISTORY_DELETES || item.id == ID_HISTORY_EDITS) {
+            String key = item.id == ID_HISTORY_ENABLED ? MelgramConfig.HISTORY_ENABLED : item.id == ID_HISTORY_DELETES ? MelgramConfig.HISTORY_DELETES : MelgramConfig.HISTORY_EDITS;
+            MelgramConfig.set(key, !MelgramConfig.get(key));
+            listView.adapter.update(true);
         } else if (item.id == ID_GHOST_ALL) {
             boolean value = !allGhost();
             for (String k : MelgramConfig.GHOST_KEYS) MelgramConfig.set(k, value);
