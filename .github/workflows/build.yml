@@ -1,6 +1,11 @@
 name: Собрать Melgram
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'melgram/**'
+      - '.github/workflows/build.yml'
   # каждый день в 06:17 по Москве проверяем, не вышел ли новый Telegram
   schedule:
     - cron: "17 3 * * *"
@@ -53,7 +58,7 @@ jobs:
         id: plan
         env:
           EVENT: ${{ github.event_name }}
-          WANT: ${{ inputs.telegram || 'последняя' }}
+          WANT: ${{ github.event_name == 'schedule' && 'последняя' || inputs.telegram || 'текущая' }}
         run: |
           CUR=$(jq -r '.telegram_commit' update.json)
           BLOCKED=$(jq -r '.blocked.telegram_commit // ""' update.json)
