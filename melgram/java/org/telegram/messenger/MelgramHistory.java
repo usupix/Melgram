@@ -92,5 +92,80 @@ public final class MelgramHistory {
   public static void clear(int a){
     synchronized(lock){try{SQLiteDatabase d=db();if(d!=null){d.delete("messages","account=?",new String[]{""+a});d.delete("events","account=?",new String[]{""+a});}}catch(Exception e){FileLog.e(e);}}
   }
+  /** True only for messages already recorded locally. */
+  private static boolean exists(int account,long dialog,int mid,boolean onlyDeleted){
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return false;
+      String condition=dialog==0?"account=? AND mid=?":"account=? AND dialog=? AND mid=?";
+      String[] args=dialog==0?new String[]{""+account,""+mid}:new String[]{""+account,""+dialog,""+mid};
+      Cursor c=d.rawQuery("SELECT deleted FROM messages WHERE "+condition+" LIMIT 1",args);
+      try{return c.moveToFirst()&&(!onlyDeleted||c.getInt(0)!=0);}finally{c.close();}
+    }catch(Exception e){FileLog.e(e);return false;}}
+  }
+  public static boolean wasDeleted(int a,long dialog,int mid){
+    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&exists(a,dialog,mid,true);
+  }
+  public static boolean hasEdits(int a,long dialog,int mid){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED))return false;
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return false;
+      Cursor c=d.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",
+       new String[]{""+a,""+dialog,""+mid});
+      try{return c.moveToFirst();}finally{c.close();}
+    }catch(Exception e){FileLog.e(e);return false;}}
+  }
+  public static ArrayList<Entry> forMessage(int a,long dialog,int mid){
+    ArrayList<Entry> out=new ArrayList<>();
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return out;
+      Cursor c=d.rawQuery("SELECT dialog,mid,kind,before_text,after_text,time FROM events WHERE account=? AND dialog=? AND mid=? ORDER BY rowid DESC LIMIT 100",
+        new String[]{""+a,""+dialog,""+mid});
+      try{while(c.moveToNext())out.add(new Entry(c));}finally{c.close();}
+    }catch(Exception e){FileLog.e(e);}}
+    return out;
+  }
+  /** Do not allow regular Telegram cache cleanup to remove a locally saved message. */
+  public static void retainDeletedInStorage(int account,long dialog,ArrayList<Integer> ids){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+      ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||ids.isEmpty())return;
+    ArrayList<Integer> keep=new ArrayList<>();
+    for(int mid:ids)if(exists(account,dialog,mid,false))keep.add(mid);
+    if(!keep.isEmpty()){
+      markDeleted(account,dialog,keep);
+      ids.removeAll(keep);
+    }
+  }
+  /** Omit locally retained messages from visual deletion events in the chat. */
+  @SuppressWarnings("unchecked")
+  public static void filterDeleteEvent(int account,Object[] args){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||args==null||args.length<3)return;
+    if(Boolean.TRUE.equals(args[2]) || !(args[0] instanceof ArrayList) || !(args[1] instanceof Long))return;
+    ArrayList<Integer> source=(ArrayList<Integer>)args[0];
+    long channel=(Long)args[1];long dialog=channel>0?-channel:0;
+    ArrayList<Integer> remaining=new ArrayList<>(source);
+    ArrayList<Integer> retained=new ArrayList<>();
+    for(Integer mid:source){
+      if(mid!=null&&exists(account,dialog,mid,false)){remaining.remove(mid);retained.add(mid);}
+    }
+    if(!retained.isEmpty()){
+      args[0]=remaining;
+      if(dialog!=0)markDeleted(account,dialog,retained);
+      else for(Integer mid:retained)markDeletedUnknown(account,mid);
+    }
+  }
+  private static void markDeletedUnknown(int a,int mid){
+    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
+      Cursor c=d.rawQuery("SELECT dialog FROM messages WHERE account=? AND mid=?",new String[]{""+a,""+mid});
+      ArrayList<Long> dialogs=new ArrayList<>();
+      try{while(c.moveToNext())dialogs.add(c.getLong(0));}finally{c.close();}
+      for(long dialog:dialogs)markDeleted(a,dialog,java.util.Collections.singletonList(mid));
+    }catch(Exception e){FileLog.e(e);}}
+  }
+  /** Display concise in-bubble marker; the actual message text stays intact. */
+  public static CharSequence decorate(int account,TLRPC.Message message,CharSequence text){
+    if(message==null||text==null||message.id<=0)return text;
+    long did=MessageObject.getDialogId(message);
+    if(wasDeleted(account,did,message.id))return "🗑 Удалено\n"+text;
+    if(hasEdits(account,did,message.id))return "✎ Изменено\n"+text;
+    return text;
+  }
   private MelgramHistory(){}
 }
