@@ -472,6 +472,32 @@ def patch_features():
         (ca, r"\} else if \(id == report\) \{",
          lambda m: "} else if (id == 18009511) {\n                    presentFragment(new org.telegram.ui.MelgramHistoryFragment(dialog_id));\n                " + m.group(0)),
     ])
+    # AyuGram-like locally retained message bubbles and edit markers
+    soft_feature("history_keep_storage", "сохранять удалённые сообщения в базе чата", [
+        (J + "messenger/MessagesStorage.java",
+         r"private ArrayList<Long> markMessagesAsDeletedInternal\(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId\) \{",
+         after("\n        if (mode == ChatActivity.MODE_DEFAULT && dialogId != 0 && !DialogObject.isEncryptedDialog(dialogId)) {\n"
+               "            org.telegram.messenger.MelgramHistory.retainDeletedInStorage(currentAccount, dialogId, messages);\n"
+               "            if (messages.isEmpty()) return new ArrayList<>();\n"
+               "        }")),
+    ])
+    soft_feature("history_filter_deletion", "не убирать сохранённые сообщения с экрана", [
+        (J + "messenger/NotificationCenter.java",
+         r"public void postNotificationName\(final int id, Object\.\.\. args\) \{",
+         after("\n        if (id == messagesDeleted) org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args);")),
+    ])
+    soft_feature("history_bubble_marker", "отметка удаления и редактирования внутри сообщения", [
+        (J + "messenger/MessageObject.java",
+         r"updateMessageText\(users, chats, sUsers, sChats\);\s*\n\s*setType\(\);",
+         lambda m: "updateMessageText(users, chats, sUsers, sChats);\n"
+                   "        messageText = org.telegram.messenger.MelgramHistory.decorate(currentAccount, messageOwner, messageText);\n"
+                   "        setType();"),
+    ])
+    soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
+        (J + "ui/ChatActivity.java",
+         r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
+         after("\n            AndroidUtilities.runOnUIThread(() -> org.telegram.ui.MelgramInlineMarkers.refresh(messages, fragmentView, currentAccount), 350);")),
+    ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
          after("""
