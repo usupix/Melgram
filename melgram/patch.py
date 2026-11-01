@@ -476,7 +476,7 @@ def patch_features():
     soft_feature("history_keep_storage", "сохранять удалённые сообщения в базе чата", [
         (J + "messenger/MessagesStorage.java",
          r"private ArrayList<Long> markMessagesAsDeletedInternal\(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId\) \{",
-         after("\n        if (mode == ChatActivity.MODE_DEFAULT && dialogId != 0 && !DialogObject.isEncryptedDialog(dialogId)) {\n"
+         after("\n        if (mode == ChatActivity.MODE_DEFAULT && (dialogId == 0 || !DialogObject.isEncryptedDialog(dialogId))) {\n"
                "            org.telegram.messenger.MelgramHistory.retainDeletedInStorage(currentAccount, dialogId, messages);\n"
                "            if (messages.isEmpty()) return new ArrayList<>();\n"
                "        }")),
