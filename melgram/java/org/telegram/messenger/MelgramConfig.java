@@ -31,6 +31,9 @@ public final class MelgramConfig {
     public static final String RICH_PASTE = "rich_paste"; // on by default
     public static final String LOWBAT_ENABLED = "lowbat_enabled";
     public static final String LOWBAT_LEVEL = "lowbat_level";
+    public static final String HISTORY_ENABLED = "history_enabled";
+    public static final String HISTORY_DELETES = "history_deletes";
+    public static final String HISTORY_EDITS = "history_edits";
     // ghost mode
     public static final String GHOST_READ = "ghost_read";
     public static final String GHOST_TYPING = "ghost_typing";
@@ -85,7 +88,7 @@ public final class MelgramConfig {
     }
 
     private static boolean defaultValue(String key) {
-        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key) || RICH_PASTE.equals(key);
+        return SCROLL_TOP_BUTTON.equals(key) || GHOST_READ_AFTER_SEND.equals(key) || PROFILE_ID.equals(key) || RICH_PASTE.equals(key) || HISTORY_DELETES.equals(key) || HISTORY_EDITS.equals(key);
     }
 
     public static boolean get(String key) {
