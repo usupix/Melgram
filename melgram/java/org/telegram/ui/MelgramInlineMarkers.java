@@ -9,19 +9,8 @@ import java.util.ArrayList;
 public final class MelgramInlineMarkers {
     private MelgramInlineMarkers() {}
     public static void refresh(ArrayList<MessageObject> messages, View root, int account) {
-        if (messages == null || !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
-                || !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) return;
-        boolean changed = false;
-        for (MessageObject item : messages) {
-            if (item == null || item.messageOwner == null || item.messageText == null) continue;
-            CharSequence decorated = MelgramHistory.decorate(account, item.messageOwner, item.messageText);
-            if (decorated != item.messageText) {
-                item.messageText = decorated;
-                item.generateLayout(null);
-                changed = true;
-            }
-        }
-        if (changed && root != null) refreshViews(root);
+        if (root != null && MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+                && MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) refreshViews(root);
     }
     private static void refreshViews(View view) {
         if (view instanceof RecyclerView) {
