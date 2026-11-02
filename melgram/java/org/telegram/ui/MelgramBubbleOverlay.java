@@ -12,12 +12,13 @@ public final class MelgramBubbleOverlay {
     private static final Paint BACK = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final Paint TEXT = new Paint(Paint.ANTI_ALIAS_FLAG);
     private MelgramBubbleOverlay() {}
-    public static void draw(Canvas canvas, MessageObject message, int width) {
+    public static void draw(Canvas canvas, MessageObject message, int width, android.view.View cell) {
         if (message == null || message.messageOwner == null ||
                 !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED) ||
                 !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) return;
-        boolean deleted = MelgramHistory.wasDeleted(message.currentAccount, message.getDialogId(), message.getId());
-        boolean edited = !deleted && MelgramHistory.hasEdits(message.currentAccount, message.getDialogId(), message.getId());
+        int status = MelgramHistory.statusForView(message.currentAccount, message.getDialogId(), message.getId(), cell);
+        boolean deleted = status == 2;
+        boolean edited = status == 1;
         if (!deleted && !edited) return;
         float scale = AndroidUtilities.density;
         float w = 78 * scale, h = 20 * scale;
