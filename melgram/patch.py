@@ -484,7 +484,10 @@ def patch_features():
     soft_feature("history_filter_deletion", "не убирать сохранённые сообщения с экрана", [
         (J + "messenger/NotificationCenter.java",
          r"public void postNotificationName\(final int id, Object\.\.\. args\) \{",
-         after("\n        if (id == messagesDeleted) {\n"\n               "            try { org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args); }\n"\n               "            catch (Throwable exception) { FileLog.e(exception); }\n"\n               "        }")),
+         after("\n        if (id == messagesDeleted) {\n"
+               "            try { org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args); }\n"
+               "            catch (Throwable exception) { FileLog.e(exception); }\n"
+               "        }")),
     ])
     # Draw the badge above the bubble rather than changing formatted text/entity offsets.
     melgram_cell = J + "ui/Cells/ChatMessageCell.java"
