@@ -492,7 +492,7 @@ def patch_features():
     if not re.search(r"\bonDrawForeground\s*\(", melgram_cell_source):
         soft_feature("history_bubble_marker", "цветные метки на пузырях сообщений", [
             (melgram_cell, r"public class ChatMessageCell[^\{]*\{",
-             after("\n    @Override\n    protected void onDrawForeground(android.graphics.Canvas canvas) {\n"
+             after("\n    @Override\n    public void onDrawForeground(android.graphics.Canvas canvas) {\n"
                    "        super.onDrawForeground(canvas);\n"
                    "        org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getWidth());\n"
                    "    }\n")),
