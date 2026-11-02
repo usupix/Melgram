@@ -489,19 +489,26 @@ def patch_features():
                "            catch (Throwable exception) { FileLog.e(exception); }\n"
                "        }")),
     ])
-    # Draw the badge above the bubble rather than changing formatted text/entity offsets.
+    # Show a compact edit/delete icon just before the message timestamp, not above text.
     melgram_cell = J + "ui/Cells/ChatMessageCell.java"
-    melgram_cell_source = read(os.path.join(SRC, melgram_cell))
-    if not re.search(r"\bonDrawForeground\s*\(", melgram_cell_source):
-        soft_feature("history_bubble_marker", "цветные метки на пузырях сообщений", [
-            (melgram_cell, r"public class ChatMessageCell[^\{]*\{",
-             after("\n    @Override\n    public void onDrawForeground(android.graphics.Canvas canvas) {\n"
-                   "        super.onDrawForeground(canvas);\n"
-                   "        org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getWidth(), this);\n"
-                   "    }\n")),
-        ])
-    else:
-        _skip("history_bubble_marker", "цветные метки на пузырях сообщений", "существует onDrawForeground")
+    soft_feature("history_time_marker", "метки рядом со временем сообщений", [
+        (melgram_cell,
+         r"if \(effectDrawable != null\) \{\s*\n\s*if \(effectDrawableBounce == null\) \{",
+         lambda m: "if (!fromParent && timeLayout != null && currentMessageObject != null && !currentMessageObject.notime) {\n"
+                   "            org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getTimeX(), getTimeY(), this);\n"
+                   "        }\n        " + m.group(0)),
+    ])
+    # Telegram can temporarily mark an existing bot as unstarted if the first
+    # cache load contains no messages. Reset that state when real history arrives.
+    soft_feature("bot_start_existing", "убрать кнопку запуска в активном чате бота", [
+        (ca,
+         r"if \(did == dialog_id && !messages\.isEmpty\(\) && currentUser != null && \(bottomOverlayStartButton != null && bottomOverlayStartButton\.getVisibility\(\) == View\.VISIBLE\)\) \{",
+         lambda m: "if (did == dialog_id && !messages.isEmpty() && currentUser != null && currentUser.bot\n"
+                   "                && botUser != null && botUser.isEmpty() && chatMode == MODE_DEFAULT) {\n"
+                   "            botUser = null;\n"
+                   "            updateBottomOverlay();\n"
+                   "        }\n        " + m.group(0)),
+    ])
     soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
         (J + "ui/ChatActivity.java",
          r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
