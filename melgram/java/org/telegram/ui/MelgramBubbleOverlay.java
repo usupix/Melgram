@@ -1,35 +1,45 @@
 package org.telegram.ui;
+
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.RectF;
+import android.view.View;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.MelgramConfig;
 import org.telegram.messenger.MelgramHistory;
 import org.telegram.messenger.MessageObject;
 
-/** Tiny non-interactive status chip on an existing Telegram message bubble. */
+/**
+ * Small status icon beside the original timestamp. The message text, bubble and
+ * timestamp remain untouched. The local-history lookup runs off the UI thread.
+ */
 public final class MelgramBubbleOverlay {
-    private static final Paint BACK = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private static final Paint TEXT = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private static final Paint ICON = new Paint(Paint.ANTI_ALIAS_FLAG);
+
     private MelgramBubbleOverlay() {}
-    public static void draw(Canvas canvas, MessageObject message, int width, android.view.View cell) {
-        if (message == null || message.messageOwner == null ||
-                !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED) ||
-                !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) return;
-        int status = MelgramHistory.statusForView(message.currentAccount, message.getDialogId(), message.getId(), cell);
-        boolean deleted = status == 2;
-        boolean edited = status == 1;
-        if (!deleted && !edited) return;
-        float scale = AndroidUtilities.density;
-        float w = 78 * scale, h = 20 * scale;
-        float x = message.isOutOwner() ? width - w - 14 * scale : 48 * scale;
-        float y = 4 * scale;
-        BACK.setColor(deleted ? 0xffb72b43 : 0xff2f77aa);
-        canvas.drawRoundRect(new RectF(x,y,x+w,y+h),10*scale,10*scale,BACK);
-        TEXT.setColor(0xffffffff);
-        TEXT.setTextSize(11*scale);
-        TEXT.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        TEXT.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(deleted ? "🗑 Удалено" : "✎ Изменено", x+w/2f, y+14*scale, TEXT);
+
+    public static void draw(Canvas canvas, MessageObject message, float timeX, float timeY, View cell) {
+        if (message == null || message.messageOwner == null || cell == null
+                || !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+                || !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) {
+            return;
+        }
+
+        int status = MelgramHistory.statusForView(
+                message.currentAccount, message.getDialogId(), message.getId(), cell);
+        if (status != 1 && status != 2) {
+            return;
+        }
+
+        float dp = AndroidUtilities.density;
+        float x = timeX - 13f * dp;
+        if (x < 4f * dp || timeY < 0f) {
+            return;
+        }
+        ICON.setTextSize(11f * dp);
+        ICON.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        ICON.setTextAlign(Paint.Align.LEFT);
+        ICON.setColor(status == 2 ? 0xffe25763 : 0xff55a9de);
+        ICON.setAlpha(255);
+        canvas.drawText(status == 2 ? "✕" : "✎", x, timeY + 11f * dp, ICON);
     }
 }
