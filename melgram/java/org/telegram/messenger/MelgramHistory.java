@@ -73,9 +73,22 @@ public final class MelgramHistory {
   public static void captureBatch(int account,List<TLRPC.Message> messages){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||messages==null)return;
     final ArrayList<TLRPC.Message> copy=new ArrayList<>(messages);
-    queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
-      for(TLRPC.Message m:copy)save(d,account,m);
-    }catch(Exception e){FileLog.e(e);}}});
+    queue.execute(()->{synchronized(lock){
+      SQLiteDatabase database=null;
+      boolean transaction=false;
+      try{
+        database=db();if(database==null)return;
+        database.beginTransaction();
+        transaction=true;
+        for(TLRPC.Message message:copy)save(database,account,message);
+        database.setTransactionSuccessful();
+      }catch(Exception e){FileLog.e(e);}
+      finally{
+        if(transaction&&database!=null){
+          try{database.endTransaction();}catch(Exception e){FileLog.e(e);}
+        }
+      }
+    }});
   }
   public static void markDeleted(int account,long dialog,List<Integer> ids){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||dialog==0)return;
@@ -154,6 +167,7 @@ public final class MelgramHistory {
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
        ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||args==null||args.length<3)return;
     if(Boolean.TRUE.equals(args[2]) || !(args[0] instanceof ArrayList) || !(args[1] instanceof Long))return;
+    for(Object mid : (ArrayList<?>)args[0]) if(!(mid instanceof Integer))return;
     ArrayList<Integer> source=(ArrayList<Integer>)args[0];
     long channel=(Long)args[1];long dialog=channel>0?-channel:0;
     ArrayList<Integer> remaining=new ArrayList<>(source);
