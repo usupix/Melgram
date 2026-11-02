@@ -494,7 +494,7 @@ def patch_features():
             (melgram_cell, r"public class ChatMessageCell[^\{]*\{",
              after("\n    @Override\n    public void onDrawForeground(android.graphics.Canvas canvas) {\n"
                    "        super.onDrawForeground(canvas);\n"
-                   "        org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getWidth());\n"
+                   "        org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getWidth(), this);\n"
                    "    }\n")),
         ])
     else:
