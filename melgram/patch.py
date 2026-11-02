@@ -410,6 +410,14 @@ def patch_features():
          lambda m: "\n" + m.group(1) + "if (%s.inQuietHours(currentAccount)) {\n" % MC
                    + m.group(1) + "    notifyDisabled = true;\n" + m.group(1) + "}" + m.group(0)),
     ])
+    # Upstream sends a photo's caption twice on Android MessagingStyle: the
+    # media message already contains "\uD83D\uDDBC " + caption; the extra item
+    # looks like a second chat message and also bypasses disabled previews.
+    soft_feature("single_photo_caption_notification", "подписи к фотографиям без дублей", [
+        (J + "messenger/NotificationsController.java",
+         r"if \(!TextUtils\.isEmpty\(messageObject\.caption\)\) \{\s*messagingStyle\.addMessage\(messageObject\.caption, \(\(long\) messageObject\.messageOwner\.date\) \* 1000, person\);\s*\}",
+         lambda m: "/* Melgram: image caption is already part of its media notification. */"),
+    ])
     soft_feature("ghost_mode", "режим призрака", [
         (J + "tgnet/ConnectionsManager.java",
          r"private void sendRequestInternal\(TLObject object, RequestDelegate onComplete, RequestDelegateTimestamp onCompleteTimestamp, QuickAckDelegate onQuickAck, WriteToSocketDelegate onWriteToSocket, int flags, int datacenterId, int connectionType, boolean immediate, int requestToken\) \{",
