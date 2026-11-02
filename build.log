@@ -1,0 +1,4 @@
+  File "/home/runner/work/Melgram/Melgram/kit/melgram/patch.py", line 487
+    after("\n        if (id == messagesDeleted) {\n"\n               "            try { org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args); }\n"\n               "            catch (Throwable exception) { FileLog.e(exception); }\n"\n               "        }")),
+                                                     ^
+SyntaxError: unexpected character after line continuation character
