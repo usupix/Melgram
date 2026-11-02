@@ -26,6 +26,23 @@ public final class MelgramHistory {
     if(badges.size()>12000)badges.clear();
     badges.put(key,result);return result;
   }
+  /**
+   * Never block Android's drawing thread while a message badge is looked up.
+   * Missing badges are fetched on the history worker and the visible cell is invalidated.
+   */
+  public static int statusForView(int a,long dialog,int mid,android.view.View view){
+    String key=badgeKey(a,dialog,mid);
+    Integer cached=badges.get(key);
+    if(cached!=null)return cached<0?0:cached;
+    if(badges.putIfAbsent(key,-1)==null){
+      queue.execute(()->{
+        badges.remove(key,-1);
+        badgeState(a,dialog,mid);
+        if(view!=null)AndroidUtilities.runOnUIThread(view::invalidate);
+      });
+    }
+    return 0;
+  }
   private static SQLiteOpenHelper helper;
   public static class Entry {
     public long dialog,time; public int mid,kind; public String before,after;
