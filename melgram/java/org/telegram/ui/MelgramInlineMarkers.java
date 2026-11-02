@@ -1,7 +1,6 @@
 package org.telegram.ui;
 import android.view.View;
 import android.view.ViewGroup;
-import androidx.recyclerview.widget.RecyclerView;
 import org.telegram.messenger.*;
 import java.util.ArrayList;
 
@@ -13,10 +12,8 @@ public final class MelgramInlineMarkers {
                 && MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) refreshViews(root);
     }
     private static void refreshViews(View view) {
-        if (view instanceof RecyclerView) {
-            RecyclerView.Adapter adapter = ((RecyclerView) view).getAdapter();
-            if (adapter != null) adapter.notifyDataSetChanged();
-        } else if (view instanceof ViewGroup) {
+        view.invalidate();
+        if (view instanceof ViewGroup) {
             ViewGroup parent = (ViewGroup) view;
             for (int i = 0; i < parent.getChildCount(); i++) {
                 refreshViews(parent.getChildAt(i));
