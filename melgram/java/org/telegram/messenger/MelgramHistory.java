@@ -58,6 +58,13 @@ public final class MelgramHistory {
     }
   }
 
+  /** A UI-only peek: never schedules SQLite work during chat rebinds. */
+  public static int cachedStatus(int account,long dialog,int mid) {
+    if(mid<=0||dialog==0)return 0;
+    Integer state=badges.get(badgeKey(account,dialog,mid));
+    return state==null||state<0?0:state;
+  }
+
   public static int statusForView(int a,long dialog,int mid,android.view.View view) {
     if(mid<=0||dialog==0)return 0;
     String key=badgeKey(a,dialog,mid);
@@ -289,6 +296,13 @@ public final class MelgramHistory {
     // Capture the originals BEFORE queuing the local tombstones.
     captureBatch(account,snapshots);
     markDeleted(account,dialog,new ArrayList<>(preserved));
+    // Update the on-screen badge immediately; the ordered worker writes the
+    // durable SQLite tombstone next. A DB read already pending cannot clear it.
+    for(Integer mid:preserved){
+      badges.compute(badgeKey(account,dialog,mid),
+          (key,previous)->(previous==null||previous<0?0:previous)|2);
+    }
+    org.telegram.ui.MelgramInlineMarkers.onArchiveChanged(account,dialog);
     ArrayList<Integer> remaining=new ArrayList<>(ids.size());
     for(Integer id:ids)if(id==null||!preserved.contains(id))remaining.add(id);
     return remaining;
