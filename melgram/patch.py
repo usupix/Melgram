@@ -542,12 +542,10 @@ def patch_features():
              "&& !(args.length > 3 && Boolean.TRUE.equals(args[3])) "
              "&& !(args.length > 4 && Boolean.TRUE.equals(args[4])) "
              "&& !(args.length > 6 && args[6] instanceof java.util.ArrayList && !((java.util.ArrayList<?>)args[6]).isEmpty()), "
-             "(ArrayList<Integer>)args[0], this.messages);")),
-    ])
-    soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
-        (J + "ui/ChatActivity.java",
-         r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
-         after("\n            AndroidUtilities.runOnUIThread(() -> org.telegram.ui.MelgramInlineMarkers.refresh(messages, fragmentView, currentAccount), 350);")),
+             "(ArrayList<Integer>)args[0], this.messages);\n"
+             "            if (markAsDeletedMessages.size() < ((ArrayList<Integer>)args[0]).size()) {\n"
+             "                org.telegram.ui.MelgramInlineMarkers.refresh(this.messages, fragmentView, currentAccount);\n"
+             "            }")),
     ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
