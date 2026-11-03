@@ -267,8 +267,7 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);}}return out;
   }
   public static void clear(int a){
-    for(String key:new java.util.ArrayList<>(badges.keySet()))if(key.startsWith(a+":"))badges.remove(key);
-    synchronized(lock){try{SQLiteDatabase d=db();if(d!=null){d.delete("messages","account=?",new String[]{""+a});d.delete("events","account=?",new String[]{""+a});}}catch(Exception e){FileLog.e(e);}}
+    clearArchive(a,0,null);
   }
 
   /**
@@ -444,6 +443,28 @@ public final class MelgramHistory {
     for(String key:new ArrayList<>(badgeObservers.keySet()))if(key.startsWith(prefix))badgeObservers.remove(key);
   }
 
+  /** Clear only saved attachments; message edits and deleted text stay intact. */
+  public static void clearMediaArchive(int account,long dialog,Runnable callback){
+    queue.execute(()->{
+      synchronized(lock){
+        try {
+          SQLiteDatabase database=db();
+          if(database!=null){
+            String where="account=?"+(dialog==0?"":" AND dialog=?");
+            String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
+            Cursor c=database.rawQuery("SELECT media_path FROM messages WHERE "+where+" AND media_path IS NOT NULL",args);
+            try { while(c.moveToNext())MelgramMediaArchive.delete(c.getString(0)); }
+            finally { c.close(); }
+            ContentValues v=new ContentValues();
+            v.putNull("media_path");v.put("media_bytes",0);
+            database.update("messages",v,where,args);
+          }
+        }catch(Exception e){FileLog.e(e);}
+      }
+      if(callback!=null)AndroidUtilities.runOnUIThread(callback);
+    });
+  }
+
   /** Per-chat/account cleanup never deletes another account's archive. */
   public static void clearArchive(int account,long dialog,Runnable callback){
     queue.execute(()->{
@@ -454,6 +475,8 @@ public final class MelgramHistory {
             database.beginTransaction();
             try {clearRows(database,account,dialog);database.setTransactionSuccessful();}
             finally {database.endTransaction();}
+            // Reclaim SQLite pages after deleting the archive, outside a transaction.
+            try {database.execSQL("VACUUM");}catch(Exception e){FileLog.e(e);}
           }
         } catch(Exception ex){FileLog.e(ex);}
       }
