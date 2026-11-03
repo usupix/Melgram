@@ -487,8 +487,8 @@ def patch_features():
         (J + "ui/ChatActivity.java",
          r"ArrayList<MessageObject> messArr = \(ArrayList<MessageObject>\) args\[2\];",
          after("\n        if (mode == MODE_DEFAULT && currentEncryptedChat == null && !isThreadChat() && !isTopic\n"
-               "                && ((Long) args[0]) == dialog_id
-                && (currentUser == null || !currentUser.bot || org.telegram.messenger.MelgramConfig.get(org.telegram.messenger.MelgramConfig.HISTORY_BOTS))) {\n"
+               "                && ((Long) args[0]) == dialog_id\n"
+               "                && (currentUser == null || !currentUser.bot || org.telegram.messenger.MelgramConfig.get(org.telegram.messenger.MelgramConfig.HISTORY_BOTS))) {\n"
                "            org.telegram.messenger.MelgramHistory.injectDeletedBatch(currentAccount, dialog_id,\n"
                "                    messArr, currentChat != null && ChatObject.isChannel(currentChat));\n"
                "        }")),
