@@ -9,6 +9,12 @@ on:
   # каждый день в 06:17 по Москве проверяем, не вышел ли новый Telegram
   schedule:
     - cron: "17 3 * * *"
+  # PR checks compile the full APK without publishing an unreviewed release.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'melgram/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       telegram:
@@ -34,8 +40,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: melgram-build
-  cancel-in-progress: false
+  group: melgram-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ACCOUNTS: ${{ inputs.accounts || '6' }}
@@ -174,6 +180,9 @@ jobs:
           ccache --set-config=compiler_check=string:ndk27.2.12479018
           ccache --zero-stats > /dev/null
 
+      - name: Проверка синтаксиса патчера
+        run: python3 -m py_compile kit/melgram/patch.py
+
       - name: Превратить Telegram в Melgram
         id: patch
         env:
@@ -225,6 +234,7 @@ jobs:
           path: out/*.apk
 
       - name: Опубликовать в Releases
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -236,6 +246,7 @@ jobs:
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Сообщить приложениям о новой версии (update.json)
+        if: github.event_name != 'pull_request'
         working-directory: kit
         run: |
           APK_NAME="Melgram-${TELEGRAM_VERSION}.apk"
@@ -260,7 +271,7 @@ jobs:
           git push -q origin HEAD:main
 
       - name: Обновление невозможно (update.json)
-        if: failure() && needs.plan.outputs.is_update == 'true' && (steps.patch.outcome == 'failure' || steps.gradle.outcome == 'failure')
+        if: github.event_name != 'pull_request' && failure() && needs.plan.outputs.is_update == 'true' && (steps.patch.outcome == 'failure' || steps.gradle.outcome == 'failure')
         working-directory: kit
         run: |
           git config user.name "melgram-bot"; git config user.email "melgram-bot@users.noreply.github.com"
@@ -274,7 +285,7 @@ jobs:
           git push -q origin HEAD:main
 
       - name: Лог ошибок (ветка build-logs)
-        if: failure()
+        if: github.event_name != 'pull_request' && failure()
         run: |
           test -f build.log || exit 0
           grep -n -E "error:|e: file|What went wrong|FAILED|Exception|OutOfMemory|Killed|No space left|\[melgram\] ОШИБКА" build.log \

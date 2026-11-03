@@ -315,6 +315,13 @@ def after(code):
 
 
 def patch_features():
+    # The AndroidX FileProvider must explicitly expose the dedicated private
+    # media-archive folder; otherwise saved attachments cannot be opened.
+    # This is a required storage-integrity patch, not a silently skipped feature.
+    rx("TMessagesProj/src/main/res/xml/provider_paths.xml",
+       r'(<files-path name="cache" path="/cache/"/>)(?!\s*<files-path name="melgram_saved_media")',
+       lambda m: m.group(1) + '\n    <files-path name="melgram_saved_media" path="/melgram_saved_media/" />',
+       label="доступ к архивным медиа через Android FileProvider")
     soft_feature("hide_stories", "скрыть истории", [
         (J + "ui/Stories/StoriesController.java", r"public boolean hasStories\(\) \{",
          after("\n        if (%s.hideStories()) return false;" % MC)),
@@ -496,30 +503,18 @@ def patch_features():
     soft_feature("history_touch_marker", "нажатие на значок истории рядом со временем", [
         (J + "ui/Cells/ChatMessageCell.java",
          r"public boolean onTouchEvent\(MotionEvent event\) \{",
-         after("\n        if (currentMessageObject != null && timeLayout != null && org.telegram.ui.MelgramBubbleOverlay.handleTouch(this, event, currentMessageObject, getTimeX(), getTimeY())) return true;")),
+         after("\n        if (currentMessageObject != null && timeLayout != null && org.telegram.ui.MelgramBubbleOverlay.handleTouch(this, event, currentMessageObject, getTimeX(), getTimeY(), timeLayout.getWidth())) return true;")),
     ])
-    # AyuGram-like locally retained message bubbles and edit markers
-    soft_feature("history_keep_storage", "сохранять удалённые сообщения в базе чата", [
-        (J + "messenger/MessagesStorage.java",
-         r"private ArrayList<Long> markMessagesAsDeletedInternal\(long dialogId, ArrayList<Integer> messages, boolean deleteFiles, int mode, int threadMessageId\) \{",
-         after("\n        if (mode == ChatActivity.MODE_DEFAULT && (dialogId == 0 || !DialogObject.isEncryptedDialog(dialogId))) {\n"
-               "            org.telegram.messenger.MelgramHistory.retainDeletedInStorage(currentAccount, dialogId, messages);\n"
-               "            if (messages.isEmpty()) return new ArrayList<>();\n"
-               "        }")),
-    ])
-    soft_feature("history_filter_deletion", "не убирать сохранённые сообщения из текущего чата", [
-        (J + "ui/ChatActivity.java",
-         r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
-         after("\n            try { org.telegram.messenger.MelgramHistory.filterChatDeleteEvent(currentAccount, dialog_id, args); }\n"
-               "            catch (Throwable exception) { FileLog.e(exception); }")),
-    ])
+    # Do not suppress MessagesStorage deletes or mutate NotificationCenter arguments.
+    # Telegram's canonical database must stay authoritative; Melgram keeps a
+    # separate archive and restores historical text only when loading a chat.
     # AyuGram puts its marks INSIDE the timestamp text, so Telegram measures
     # and lays out the full label correctly. Avoid floating overlay icons.
     melgram_cell = J + "ui/Cells/ChatMessageCell.java"
     soft_feature("history_ayu_timestamp", "метки AyuGram внутри времени сообщения", [
         (melgram_cell,
          r"if \(currentMessageObject\.messageOwner\.video_processing_pending\) \{\s*timeString = formatString\(R\.string\.ScheduledTimeApprox, timeString\);\s*\}",
-         after("\n        timeString = org.telegram.messenger.MelgramHistory.formatAyuTime(currentAccount, messageObject, edited, timeString);")),
+         after("\n        timeString = org.telegram.messenger.MelgramHistory.formatAyuTime(currentAccount, messageObject, edited, timeString, this);")),
     ])
     # Telegram can temporarily mark an existing bot as unstarted if the first
     # cache load contains no messages. Reset that state when real history arrives.
@@ -531,6 +526,23 @@ def patch_features():
                    "            botUser = null;\n"
                    "            updateBottomOverlay();\n"
                    "        }\n        " + m.group(0)),
+    ])
+    # Keep only the local in-chat copy of deleted messages. Do not mutate
+    # NotificationCenter arguments, Telegram storage or observers in other chats.
+    # This is intentionally scoped to the ordinary, non-secret chat view.
+    soft_feature("history_preserve_visible", "мгновенное сохранение удалённых сообщений в открытом чате", [
+        (ca,
+         r"ArrayList<Integer> markAsDeletedMessages = \(ArrayList<Integer>\) args\[0\];\s*\n\s*long channelId = \(Long\) args\[1\];",
+         lambda m: m.group(0).replace(
+             "ArrayList<Integer> markAsDeletedMessages = (ArrayList<Integer>) args[0];",
+             "ArrayList<Integer> markAsDeletedMessages = org.telegram.messenger.MelgramHistory.preserveVisibleDeletes("
+             "currentAccount, dialog_id, (Long)args[1], currentChat != null && ChatObject.isChannel(currentChat), "
+             "chatMode == MODE_DEFAULT && currentEncryptedChat == null && !isThreadChat() && !isTopic "
+             "&& !(Boolean)args[2] "
+             "&& !(args.length > 3 && Boolean.TRUE.equals(args[3])) "
+             "&& !(args.length > 4 && Boolean.TRUE.equals(args[4])) "
+             "&& !(args.length > 6 && args[6] instanceof java.util.ArrayList && !((java.util.ArrayList<?>)args[6]).isEmpty()), "
+             "(ArrayList<Integer>)args[0], this.messages);")),
     ])
     soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
         (J + "ui/ChatActivity.java",
