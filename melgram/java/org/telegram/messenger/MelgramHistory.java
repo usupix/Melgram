@@ -51,13 +51,22 @@ public final class MelgramHistory {
   private static SQLiteDatabase db(){
     Context ctx=ApplicationLoader.applicationContext;
     if(ctx==null)return null;
-    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,2){
+    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,3){
       public void onCreate(SQLiteDatabase d){
-        d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
+        d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,msg_date INTEGER DEFAULT 0,sender_id INTEGER DEFAULT 0,is_out INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
+        d.execSQL("CREATE INDEX IF NOT EXISTS history_deleted_range ON messages(account,dialog,deleted,mid)");
         d.execSQL("CREATE TABLE events(account INTEGER,dialog INTEGER,mid INTEGER,kind INTEGER,before_text TEXT,after_text TEXT,time INTEGER)");
         d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
       }
-      public void onUpgrade(SQLiteDatabase d,int a,int b){if(a<2)d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");}
+      public void onUpgrade(SQLiteDatabase d,int a,int b){
+        if(a<2)d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
+        if(a<3){
+          d.execSQL("ALTER TABLE messages ADD COLUMN msg_date INTEGER DEFAULT 0");
+          d.execSQL("ALTER TABLE messages ADD COLUMN sender_id INTEGER DEFAULT 0");
+          d.execSQL("ALTER TABLE messages ADD COLUMN is_out INTEGER DEFAULT 0");
+          d.execSQL("CREATE INDEX IF NOT EXISTS history_deleted_range ON messages(account,dialog,deleted,mid)");
+        }
+      }
     };
     return helper.getWritableDatabase();
   }
@@ -77,6 +86,15 @@ public final class MelgramHistory {
     String old=null;int oldEdit=0,deleted=0;
     try{if(c.moveToFirst()){old=c.getString(0);oldEdit=c.getInt(1);deleted=c.getInt(2);}}finally{c.close();}
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",did);v.put("mid",m.id);v.put("text",text);v.put("edit_date",m.edit_date);
+    v.put("msg_date",m.date);
+    long senderId=0L;
+    if(m.from_id!=null){
+      if(m.from_id.user_id!=0)senderId=m.from_id.user_id;
+      else if(m.from_id.chat_id!=0)senderId=-m.from_id.chat_id;
+      else if(m.from_id.channel_id!=0)senderId=-m.from_id.channel_id;
+    }
+    v.put("sender_id",senderId);
+    v.put("is_out",m.out?1:0);
     if(old==null){v.put("deleted",0);d.insertWithOnConflict("messages",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
     else if(deleted==0&&m.edit_date>=oldEdit&&!old.equals(text)){
       if(MelgramConfig.get(MelgramConfig.HISTORY_EDITS))event(d,a,did,m.id,1,old,text);
@@ -142,6 +160,83 @@ public final class MelgramHistory {
     for(String key:new java.util.ArrayList<>(badges.keySet()))if(key.startsWith(a+":"))badges.remove(key);
     synchronized(lock){try{SQLiteDatabase d=db();if(d!=null){d.delete("messages","account=?",new String[]{""+a});d.delete("events","account=?",new String[]{""+a});}}catch(Exception e){FileLog.e(e);}}
   }
+
+  /**
+   * AyuGram-style in-chat recovery. The archive is independent of Telegram's
+   * disposable cache. Restore locally deleted text/captions only for the range
+   * of message IDs that Telegram is currently loading.
+   *
+   * A bounded, indexed lookup prevents pathological full-history scans.
+   */
+  public static void injectDeletedBatch(int account,long dialog,ArrayList<MessageObject> loaded,boolean isChannel){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+      ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)
+      ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+      ||DialogObject.isEncryptedDialog(dialog)||loaded==null||loaded.size()<2)return;
+    int min=Integer.MAX_VALUE,max=0;
+    HashSet<Integer> present=new HashSet<>();
+    for(MessageObject item:loaded){
+      if(item==null||item.getId()<=0)return;
+      present.add(item.getId());
+      min=Math.min(min,item.getId());max=Math.max(max,item.getId());
+    }
+    if(min>=max)return;
+    ArrayList<MessageObject> restored=new ArrayList<>();
+    synchronized(lock){
+      try{
+        SQLiteDatabase database=db();
+        if(database==null)return;
+        Cursor c=database.rawQuery(
+          "SELECT mid,text,msg_date,sender_id,is_out FROM messages "
+          +"WHERE account=? AND dialog=? AND deleted=1 AND mid>=? AND mid<=? AND msg_date>0 "
+          +"ORDER BY mid DESC LIMIT 60",
+          new String[]{""+account,""+dialog,""+min,""+max});
+        try{
+          while(c.moveToNext()){
+            final int mid=c.getInt(0);
+            if(present.contains(mid))continue;
+            TLRPC.TL_message msg=new TLRPC.TL_message();
+            msg.id=mid;msg.dialog_id=dialog;msg.date=c.getInt(2);
+            msg.message=c.getString(1);
+            msg.out=c.getInt(4)==1;
+            if(dialog>0){
+              TLRPC.TL_peerUser peer=new TLRPC.TL_peerUser();
+              peer.user_id=dialog;msg.peer_id=peer;
+            }else if(isChannel){
+              TLRPC.TL_peerChannel peer=new TLRPC.TL_peerChannel();
+              peer.channel_id=-dialog;msg.peer_id=peer;
+            }else{
+              TLRPC.TL_peerChat peer=new TLRPC.TL_peerChat();
+              peer.chat_id=-dialog;msg.peer_id=peer;
+            }
+            long sender=c.getLong(3);
+            if(sender==0&&dialog>0&&!msg.out)sender=dialog;
+            if(sender==0&&msg.out)sender=UserConfig.getInstance(account).getClientUserId();
+            if(sender!=0){
+              if(sender>0){
+                TLRPC.TL_peerUser peer=new TLRPC.TL_peerUser();
+                peer.user_id=sender;msg.from_id=peer;
+              }else if(isChannel){
+                TLRPC.TL_peerChannel peer=new TLRPC.TL_peerChannel();
+                peer.channel_id=-sender;msg.from_id=peer;
+              }else{
+                TLRPC.TL_peerChat peer=new TLRPC.TL_peerChat();
+                peer.chat_id=-sender;msg.from_id=peer;
+              }
+              msg.flags|=TLRPC.MESSAGE_FLAG_HAS_FROM_ID;
+            }
+            MessageObject wrapper=new MessageObject(account,msg,true,false);
+            restored.add(wrapper);
+            present.add(mid);
+          }
+        }finally{c.close();}
+      }catch(Exception e){FileLog.e(e);}
+    }
+    if(restored.isEmpty())return;
+    loaded.addAll(restored);
+    Collections.sort(loaded,(a,b)->Integer.compare(b.getId(),a.getId()));
+  }
+
   /** True only for messages already recorded locally. */
   private static boolean exists(int account,long dialog,int mid,boolean onlyDeleted){
     synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return false;
