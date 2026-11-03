@@ -122,8 +122,11 @@ public final class MelgramHistory {
     return helper.getWritableDatabase();
   }
   private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after){
+    event(d,a,dialog,id,kind,before,after,System.currentTimeMillis());
+  }
+  private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after,long occurredAt){
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
-    v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
+    v.put("before_text",before);v.put("after_text",after);v.put("time",occurredAt);d.insert("events",null,v);
     badges.compute(badgeKey(a,dialog,id),(key,oldValue)->(oldValue==null||oldValue<0?0:oldValue)|(kind==2?2:1));
   }
   // Snapshot the message before Telegram changes its mutable TL objects.
@@ -187,7 +190,7 @@ public final class MelgramHistory {
     }else if(deleted==0&&snap.editDate>=oldEdit&&!old.equals(snap.text)){
       // A different snapshot without an edit_date is not a Telegram edit.
       if(snap.editDate>0&&MelgramConfig.get(MelgramConfig.HISTORY_EDITS)){
-        event(d,snap.account,snap.dialog,snap.id,1,old,snap.text);
+        event(d,snap.account,snap.dialog,snap.id,1,old,snap.text,snap.editDate*1000L);
       }
       d.update("messages",v,"account=? AND dialog=? AND mid=?",args);
     }else if(deleted==0&&snap.savedMedia!=null){
