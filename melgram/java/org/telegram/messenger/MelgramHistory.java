@@ -269,6 +269,15 @@ public final class MelgramHistory {
       try{while(c.moveToNext())out.add(new Entry(c));}finally{c.close();}
     }catch(Exception e){FileLog.e(e);}}return out;
   }
+  /** Unified asynchronous event browser for the history settings screen. */
+  public static void loadEvents(int account,long dialog,int messageId,int limit,
+      java.util.function.Consumer<ArrayList<Entry>> callback) {
+    queue.execute(()->{
+      ArrayList<Entry> entries=messageId>0?forMessage(account,dialog,messageId):recent(account,dialog,limit);
+      if(callback!=null)AndroidUtilities.runOnUIThread(()->callback.accept(entries));
+    });
+  }
+
   public static void clear(int a){
     clearArchive(a,0,null);
   }
