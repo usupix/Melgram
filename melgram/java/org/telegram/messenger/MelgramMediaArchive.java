@@ -32,6 +32,21 @@ public final class MelgramMediaArchive {
         return "bin";
     }
 
+    private static String contentHash(File file) throws Exception {
+        java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+        try(FileInputStream in=new FileInputStream(file)){
+            byte[] buffer=new byte[65536];int n;
+            while((n=in.read(buffer))!=-1)digest.update(buffer,0,n);
+        }
+        StringBuilder hex=new StringBuilder(64);
+        for(byte value:digest.digest()){
+            int n=value&255;
+            hex.append(Character.forDigit(n>>>4,16));
+            hex.append(Character.forDigit(n&15,16));
+        }
+        return hex.toString();
+    }
+
     public static String persist(int account,long dialog,int messageId,String sourcePath) {
         if(sourcePath==null||!MelgramConfig.get(MelgramConfig.HISTORY_MEDIA))return null;
         File folder=root();
@@ -39,25 +54,30 @@ public final class MelgramMediaArchive {
         File source=new File(sourcePath);
         long length=source.length();
         if(!source.isFile()||length<=0||length>MAX_FILE)return null;
-        String filename=account+"_"+dialog+"_"+messageId+"."+extension(source);
-        File target=new File(folder,filename);
-        if(target.isFile()&&target.length()==length)return target.getAbsolutePath();
-        File[] children=folder.listFiles();
-        long total=0;
-        if(children!=null)for(File child:children)if(child.isFile())total+=child.length();
-        if(total+length>MAX_TOTAL)return null;
-        File temp=new File(folder,filename+".part");
-        try(FileInputStream in=new FileInputStream(source);FileOutputStream out=new FileOutputStream(temp)){
-            byte[] buf=new byte[65536];int n;
-            while((n=in.read(buf))!=-1)out.write(buf,0,n);
-            out.getFD().sync();
-        } catch(Exception e) {
-            FileLog.e(e);temp.delete();return null;
-        }
-        if(temp.length()!=length){temp.delete();return null;}
-        if(target.exists()&&!target.delete()){temp.delete();return null;}
-        if(!temp.renameTo(target)){temp.delete();return null;}
-        return target.getAbsolutePath();
+        try {
+            // Version by content hash, not just message ID: old media revisions
+            // never get overwritten by a new image or a same-size edit.
+            String filename=account+"_"+dialog+"_"+messageId+"_"+
+                contentHash(source)+"."+extension(source);
+            File target=new File(folder,filename);
+            if(target.isFile()&&target.length()==length)return target.getAbsolutePath();
+
+            File[] children=folder.listFiles();
+            long total=0;
+            if(children!=null)for(File child:children)if(child.isFile())total+=child.length();
+            if(total+length>MAX_TOTAL)return null;
+            File temp=new File(folder,filename+".part");
+            try(FileInputStream in=new FileInputStream(source);FileOutputStream out=new FileOutputStream(temp)){
+                byte[] buf=new byte[65536];int n;
+                while((n=in.read(buf))!=-1)out.write(buf,0,n);
+                out.getFD().sync();
+            } catch(Exception e) {
+                FileLog.e(e);temp.delete();return null;
+            }
+            if(temp.length()!=length){temp.delete();return null;}
+            if(!temp.renameTo(target)){temp.delete();return null;}
+            return target.getAbsolutePath();
+        } catch(Exception e){FileLog.e(e);return null;}
     }
 
     /** Only delete files within the private archive, never external paths. */
