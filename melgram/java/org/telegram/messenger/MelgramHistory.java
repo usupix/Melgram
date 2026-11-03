@@ -136,7 +136,7 @@ public final class MelgramHistory {
   private static Snapshot snapshot(int a,TLRPC.Message m){
     if(m==null||m.id<=0||m.ttl>0||m.noforwards||m.action!=null)return null;
     long did=MessageObject.getDialogId(m);
-    if(did==0||DialogObject.isEncryptedDialog(did))return null;
+    if(did==0||DialogObject.isEncryptedDialog(did)||!MelgramConfig.historyDialogEnabled(a,did))return null;
     if(did>0&&!MelgramConfig.get(MelgramConfig.HISTORY_BOTS)){
       TLRPC.User user=MessagesController.getInstance(a).getUser(did);
       if(user!=null&&user.bot)return null;
@@ -205,7 +205,7 @@ public final class MelgramHistory {
     }});
   }
   public static void markDeleted(int account,long dialog,List<Integer> ids){
-    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||dialog==0)return;
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||dialog==0||!MelgramConfig.historyDialogEnabled(account,dialog))return;
     ArrayList<Integer> copy=new ArrayList<>(ids);
     queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
       for(int mid:copy)delete(d,account,dialog,mid);
@@ -220,7 +220,7 @@ public final class MelgramHistory {
     d.update("messages",v,"account=? AND dialog=? AND mid=?",args);event(d,a,dialog,id,2,old,"");
   }
   public static void markDeletedThrough(int a,long dialog,int mid){
-    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES))return;
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||!MelgramConfig.historyDialogEnabled(a,dialog))return;
     queue.execute(()->{synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
       Cursor c=d.rawQuery("SELECT mid FROM messages WHERE account=? AND dialog=? AND mid<=? AND deleted=0",new String[]{""+a,""+dialog,""+mid});
       ArrayList<Integer> ids=new ArrayList<>();try{while(c.moveToNext())ids.add(c.getInt(0));}finally{c.close();}
@@ -250,6 +250,7 @@ public final class MelgramHistory {
   public static void injectDeletedBatch(int account,long dialog,ArrayList<MessageObject> loaded,boolean isChannel){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
       ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)
+      ||!MelgramConfig.historyDialogEnabled(account,dialog)
       ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
       ||DialogObject.isEncryptedDialog(dialog)||loaded==null||loaded.size()<2)return;
     int min=Integer.MAX_VALUE,max=0;
@@ -314,6 +315,119 @@ public final class MelgramHistory {
     if(restored.isEmpty())return;
     loaded.addAll(restored);
     Collections.sort(loaded,(a,b)->Integer.compare(b.getId(),a.getId()));
+  }
+
+  /** Read-only snapshot of the locally captured message, loaded on the history worker. */
+  public static final class Detail {
+    public final ArrayList<Entry> events;
+    public final String currentText;
+    public final int originalDate;
+    public final long sender;
+    public final boolean outgoing;
+    public final boolean deleted;
+    public final String mediaPath;
+    Detail(ArrayList<Entry> events,String currentText,int originalDate,long sender,boolean outgoing,boolean deleted,String mediaPath) {
+      this.events=events;this.currentText=currentText;this.originalDate=originalDate;
+      this.sender=sender;this.outgoing=outgoing;this.deleted=deleted;this.mediaPath=mediaPath;
+    }
+  }
+
+  public static void loadDetail(int a,long dialog,int mid,java.util.function.Consumer<Detail> callback) {
+    queue.execute(()->{
+      ArrayList<Entry> events=new ArrayList<>();
+      String value=null,mediaPath=null;
+      int date=0;
+      long sender=0;
+      boolean outgoing=false,deleted=false;
+      synchronized(lock){
+        try {
+          SQLiteDatabase database=db();
+          if(database!=null) {
+            String[] args={""+a,""+dialog,""+mid};
+            Cursor m=database.rawQuery("SELECT text,msg_date,sender_id,is_out,deleted,media_path FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",args);
+            try {
+              if(m.moveToFirst()){
+                value=m.getString(0);date=m.getInt(1);sender=m.getLong(2);
+                outgoing=m.getInt(3)!=0;deleted=m.getInt(4)!=0;mediaPath=m.getString(5);
+              }
+            } finally {m.close();}
+            Cursor e=database.rawQuery("SELECT dialog,mid,kind,before_text,after_text,time FROM events WHERE account=? AND dialog=? AND mid=? ORDER BY rowid ASC LIMIT 100",args);
+            try {while(e.moveToNext())events.add(new Entry(e));} finally {e.close();}
+          }
+        }catch(Exception ex){FileLog.e(ex);}
+      }
+      Detail result=new Detail(events,value,date,sender,outgoing,deleted,mediaPath);
+      if(callback!=null)AndroidUtilities.runOnUIThread(()->callback.accept(result));
+    });
+  }
+
+  public static final class ArchiveStats {
+    public final int messages,edits,deletions,mediaCount;
+    public final long databaseBytes,mediaBytes;
+    ArchiveStats(int messages,int edits,int deletions,int mediaCount,long databaseBytes,long mediaBytes){
+      this.messages=messages;this.edits=edits;this.deletions=deletions;
+      this.mediaCount=mediaCount;this.databaseBytes=databaseBytes;this.mediaBytes=mediaBytes;
+    }
+  }
+
+  private static int count(SQLiteDatabase d,String table,String condition,String[] args){
+    Cursor c=d.rawQuery("SELECT COUNT(*) FROM "+table+" WHERE "+condition,args);
+    try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}
+  }
+
+  public static void loadStats(int account,long dialog,java.util.function.Consumer<ArchiveStats> callback) {
+    queue.execute(()->{
+      int messages=0,edits=0,deletions=0,mediaCount=0;
+      long mediaBytes=0,dbBytes=0;
+      synchronized(lock){
+        try {
+          SQLiteDatabase d=db();
+          if(d!=null){
+            String filter="account=?"+(dialog==0?"":" AND dialog=?");
+            String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
+            messages=count(d,"messages",filter,args);
+            edits=count(d,"events",filter+" AND kind=1",args);
+            deletions=count(d,"events",filter+" AND kind=2",args);
+            Cursor c=d.rawQuery("SELECT COUNT(*),COALESCE(SUM(media_bytes),0) FROM messages WHERE "+filter+" AND media_path IS NOT NULL",args);
+            try {if(c.moveToFirst()){mediaCount=c.getInt(0);mediaBytes=c.getLong(1);}}finally{c.close();}
+            java.io.File f=ApplicationLoader.applicationContext.getDatabasePath("melgram_history.db");
+            dbBytes=f.length();
+          }
+        }catch(Exception ex){FileLog.e(ex);}
+      }
+      ArchiveStats stats=new ArchiveStats(messages,edits,deletions,mediaCount,dbBytes,mediaBytes);
+      if(callback!=null)AndroidUtilities.runOnUIThread(()->callback.accept(stats));
+    });
+  }
+
+  private static void clearRows(SQLiteDatabase database,int account,long dialog){
+    String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
+    String cond="account=?"+(dialog==0?"":" AND dialog=?");
+    Cursor media=database.rawQuery("SELECT media_path FROM messages WHERE "+cond+" AND media_path IS NOT NULL",args);
+    try {while(media.moveToNext())MelgramMediaArchive.delete(media.getString(0));}
+    finally {media.close();}
+    database.delete("messages",cond,args);
+    database.delete("events",cond,args);
+    String prefix=dialog==0?account+":":account+":"+dialog+":";
+    for(String key:new ArrayList<>(badges.keySet()))if(key.startsWith(prefix))badges.remove(key);
+    for(String key:new ArrayList<>(badgeObservers.keySet()))if(key.startsWith(prefix))badgeObservers.remove(key);
+  }
+
+  /** Per-chat/account cleanup never deletes another account's archive. */
+  public static void clearArchive(int account,long dialog,Runnable callback){
+    queue.execute(()->{
+      synchronized(lock){
+        try {
+          SQLiteDatabase database=db();
+          if(database!=null){
+            database.beginTransaction();
+            try {clearRows(database,account,dialog);database.setTransactionSuccessful();}
+            finally {database.endTransaction();}
+          }
+        } catch(Exception ex){FileLog.e(ex);}
+      }
+      if(callback!=null)AndroidUtilities.runOnUIThread(callback);
+    });
   }
 
   /** True only for messages already recorded locally. */
