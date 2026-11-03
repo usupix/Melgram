@@ -31,7 +31,7 @@ public final class MelgramBubbleOverlay {
         float dp = AndroidUtilities.density;
         float width = Math.max(measuredWidth, 28f * dp);
         float x = event.getX(), y = event.getY();
-        boolean hit = x >= timeX - 4f * dp && x <= timeX + width * dp
+        boolean hit = x >= timeX - 4f * dp && x <= timeX + width
                 && y >= timeY - 10f * dp && y <= timeY + 20f * dp;
 
         int action = event.getActionMasked();
