@@ -128,6 +128,7 @@ public final class MelgramHistory {
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
     v.put("before_text",before);v.put("after_text",after);v.put("time",occurredAt);d.insert("events",null,v);
     badges.compute(badgeKey(a,dialog,id),(key,oldValue)->(oldValue==null||oldValue<0?0:oldValue)|(kind==2?2:1));
+    org.telegram.ui.MelgramInlineMarkers.onArchiveChanged(a,dialog);
   }
   // Snapshot the message before Telegram changes its mutable TL objects.
   private static final class Snapshot {
