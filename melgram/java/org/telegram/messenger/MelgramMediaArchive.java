@@ -90,6 +90,21 @@ public final class MelgramMediaArchive {
         }catch(Exception e){FileLog.e(e);}
     }
 
+    /** Remove every archive file in the selected scope, including stale
+     * versions left by older Melgram builds or interrupted archive writes. */
+    public static void purge(int account,long dialog){
+        File folder=root();
+        if(folder==null)return;
+        String prefix=dialog==0?account+"_":account+"_"+dialog+"_";
+        File[] children=folder.listFiles();
+        if(children==null)return;
+        for(File file:children){
+            if(file.isFile()&&file.getName().startsWith(prefix)){
+                delete(file.getAbsolutePath());
+            }
+        }
+    }
+
     public static String mimeType(String path) {
         if(path==null)return "application/octet-stream";
         String ext=android.webkit.MimeTypeMap.getFileExtensionFromUrl(path);
