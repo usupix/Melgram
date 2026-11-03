@@ -35,6 +35,7 @@ public final class MelgramConfig {
     public static final String HISTORY_DELETES = "history_deletes";
     public static final String HISTORY_EDITS = "history_edits";
     public static final String HISTORY_INLINE = "history_inline";
+    public static final String HISTORY_BOTS = "history_bots";
     // ghost mode
     public static final String GHOST_READ = "ghost_read";
     public static final String GHOST_TYPING = "ghost_typing";
