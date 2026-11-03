@@ -480,25 +480,42 @@ public final class MelgramHistory {
    * AyuGram-style timestamp marks are part of the measured text, never painted
    * on top of the bubble. Both edit and deletion flags can be visible together.
    */
+  private static void styleDeletedBubble(android.view.View cell,boolean deleted) {
+    if(cell==null)return;
+    // AyuGram-like dimmed bubbles, but retain readability and correct touch events.
+    // Every message bind recalculates alpha so recycled cells return to normal.
+    float alpha=deleted?0.65f:1.0f;
+    if(Math.abs(cell.getAlpha()-alpha)>0.01f)cell.setAlpha(alpha);
+  }
+
   public static String formatAyuTime(int account,MessageObject message,boolean telegramEdited,String time,android.view.View cell){
     if(message==null||message.messageOwner==null||message.getId()<=0
        ||time==null||time.isEmpty()
        ||!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
        ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
        ||message.messageOwner.edit_hide||message.scheduled||message.notime
-       ||message.isSponsored()||message.isQuickReply()||message.isWelcomeMessage())return time;
+       ||message.isSponsored()||message.isQuickReply()||message.isWelcomeMessage()){
+      styleDeletedBubble(cell,false);
+      return time;
+    }
     long dialog=message.getDialogId();
-    if(DialogObject.isEncryptedDialog(dialog))return time;
+    if(DialogObject.isEncryptedDialog(dialog)){
+      styleDeletedBubble(cell,false);
+      return time;
+    }
     if(dialog>0&&!MelgramConfig.get(MelgramConfig.HISTORY_BOTS)){
-      TLRPC.User person=MessagesController.getInstance(account).getUser(dialog);
-      if(person!=null&&person.bot)return time;
+      TLRPC.User user=MessagesController.getInstance(account).getUser(dialog);
+      if(user!=null&&user.bot){
+        styleDeletedBubble(cell,false);
+        return time;
+      }
     }
     int flags=statusForView(account,dialog,message.getId(),cell);
     boolean deleted=MelgramConfig.get(MelgramConfig.HISTORY_DELETES)&&(flags&2)!=0;
     boolean edited=telegramEdited||(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)&&(flags&1)!=0);
+    styleDeletedBubble(cell,deleted);
     if(!deleted&&!edited)return time;
-    // Inline glyphs, not floating overlays. The native time layout measures
-    // the whole label and uses the active chat bubble theme color.
+    // Marks are inside the measured timestamp; colors follow the native theme.
     return (edited?"✎ ":"")+(deleted?"✕ ":"")+time;
   }
 
