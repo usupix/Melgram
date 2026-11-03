@@ -319,7 +319,7 @@ def patch_features():
     # media-archive folder; otherwise saved attachments cannot be opened.
     # This is a required storage-integrity patch, not a silently skipped feature.
     rx("TMessagesProj/src/main/res/xml/provider_paths.xml",
-       r'(<files-path name="cache" path="/cache/"/>)(?!\\s*<files-path name="melgram_saved_media")',
+       r'(<files-path name="cache" path="/cache/"/>)(?!\s*<files-path name="melgram_saved_media")',
        lambda m: m.group(1) + '\n    <files-path name="melgram_saved_media" path="/melgram_saved_media/" />',
        label="доступ к архивным медиа через Android FileProvider")
     soft_feature("hide_stories", "скрыть истории", [
@@ -532,7 +532,7 @@ def patch_features():
     # This is intentionally scoped to the ordinary, non-secret chat view.
     soft_feature("history_preserve_visible", "мгновенное сохранение удалённых сообщений в открытом чате", [
         (ca,
-         r"ArrayList<Integer> markAsDeletedMessages = \\(ArrayList<Integer>\\) args\\[0\\];\\s*\\n\\s*long channelId = \\(Long\\) args\\[1\\];",
+         r"ArrayList<Integer> markAsDeletedMessages = \(ArrayList<Integer>\) args\[0\];\s*\n\s*long channelId = \(Long\) args\[1\];",
          lambda m: m.group(0).replace(
              "ArrayList<Integer> markAsDeletedMessages = (ArrayList<Integer>) args[0];",
              "ArrayList<Integer> markAsDeletedMessages = org.telegram.messenger.MelgramHistory.preserveVisibleDeletes("
