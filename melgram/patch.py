@@ -566,6 +566,16 @@ def patch_features():
          r"processDeletedMessages\(markAsDeletedMessages, channelId, sent, !movedToScheduled\);",
          lambda m: "if (!melgramPreservedAny || !markAsDeletedMessages.isEmpty()) " + m.group(0)),
     ])
+    # Deletion confirmation dismisses selection mode AFTER posting Telegram's
+    # notification. Rebind again after dismissal to clear stale check circles.
+    soft_feature("history_selection_cleanup", "снять галочки выбора после подтверждения удаления", [
+        (ca,
+         r"hideActionMode\(\);\s*updatePinnedMessageView\(true\);\s*\}, hideDimAfter \? \(\) -> dimBehindView\(false\) : null, themeDelegate\);",
+         lambda m: m.group(0).replace(
+             "updatePinnedMessageView(true);",
+             "updatePinnedMessageView(true);\n"
+             "            AndroidUtilities.runOnUIThread(() -> org.telegram.ui.MelgramInlineMarkers.refresh(this.messages, fragmentView, currentAccount), 160);")),
+    ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
          after("""
