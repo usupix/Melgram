@@ -98,12 +98,14 @@ public final class MelgramHistory {
   private static SQLiteDatabase db(){
     Context ctx=ApplicationLoader.applicationContext;
     if(ctx==null)return null;
-    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,4){
+    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,5){
       public void onCreate(SQLiteDatabase d){
         d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,msg_date INTEGER DEFAULT 0,sender_id INTEGER DEFAULT 0,is_out INTEGER DEFAULT 0,media_path TEXT,media_bytes INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
         d.execSQL("CREATE INDEX IF NOT EXISTS history_deleted_range ON messages(account,dialog,deleted,mid)");
         d.execSQL("CREATE TABLE events(account INTEGER,dialog INTEGER,mid INTEGER,kind INTEGER,before_text TEXT,after_text TEXT,time INTEGER)");
         d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
+        d.execSQL("CREATE TABLE media_versions(account INTEGER,dialog INTEGER,mid INTEGER,path TEXT,bytes INTEGER,saved_at INTEGER,PRIMARY KEY(account,dialog,mid,path))");
+        d.execSQL("CREATE INDEX IF NOT EXISTS history_media_lookup ON media_versions(account,dialog,mid,saved_at)");
       }
       public void onUpgrade(SQLiteDatabase d,int a,int b){
         if(a<2)d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
@@ -116,6 +118,11 @@ public final class MelgramHistory {
         if(a<4){
           d.execSQL("ALTER TABLE messages ADD COLUMN media_path TEXT");
           d.execSQL("ALTER TABLE messages ADD COLUMN media_bytes INTEGER DEFAULT 0");
+        }
+        if(a<5){
+          d.execSQL("CREATE TABLE media_versions(account INTEGER,dialog INTEGER,mid INTEGER,path TEXT,bytes INTEGER,saved_at INTEGER,PRIMARY KEY(account,dialog,mid,path))");
+          d.execSQL("CREATE INDEX IF NOT EXISTS history_media_lookup ON media_versions(account,dialog,mid,saved_at)");
+          d.execSQL("INSERT OR IGNORE INTO media_versions(account,dialog,mid,path,bytes,saved_at) SELECT account,dialog,mid,media_path,media_bytes,strftime('%s','now')*1000 FROM messages WHERE media_path IS NOT NULL");
         }
       }
     };
@@ -182,8 +189,14 @@ public final class MelgramHistory {
     v.put("text",snap.text);v.put("edit_date",snap.editDate);
     v.put("msg_date",snap.date);v.put("sender_id",snap.sender);v.put("is_out",snap.outgoing?1:0);
     if(snap.savedMedia!=null){
+      long size=new java.io.File(snap.savedMedia).length();
       v.put("media_path",snap.savedMedia);
-      v.put("media_bytes",new java.io.File(snap.savedMedia).length());
+      v.put("media_bytes",size);
+      ContentValues archived=new ContentValues();
+      archived.put("account",snap.account);archived.put("dialog",snap.dialog);
+      archived.put("mid",snap.id);archived.put("path",snap.savedMedia);
+      archived.put("bytes",size);archived.put("saved_at",System.currentTimeMillis());
+      d.insertWithOnConflict("media_versions",null,archived,SQLiteDatabase.CONFLICT_IGNORE);
     }
     if(old==null){
       v.put("deleted",0);
@@ -411,15 +424,18 @@ public final class MelgramHistory {
     public final boolean outgoing;
     public final boolean deleted;
     public final String mediaPath;
-    Detail(ArrayList<Entry> events,String currentText,int originalDate,long sender,boolean outgoing,boolean deleted,String mediaPath) {
+    public final ArrayList<String> mediaVersions;
+    Detail(ArrayList<Entry> events,String currentText,int originalDate,long sender,boolean outgoing,boolean deleted,String mediaPath,ArrayList<String> mediaVersions) {
       this.events=events;this.currentText=currentText;this.originalDate=originalDate;
       this.sender=sender;this.outgoing=outgoing;this.deleted=deleted;this.mediaPath=mediaPath;
+      this.mediaVersions=mediaVersions;
     }
   }
 
   public static void loadDetail(int a,long dialog,int mid,java.util.function.Consumer<Detail> callback) {
     queue.execute(()->{
       ArrayList<Entry> events=new ArrayList<>();
+      ArrayList<String> mediaVersions=new ArrayList<>();
       String value=null,mediaPath=null;
       int date=0;
       long sender=0;
@@ -438,10 +454,17 @@ public final class MelgramHistory {
             } finally {m.close();}
             Cursor e=database.rawQuery("SELECT dialog,mid,kind,before_text,after_text,time FROM events WHERE account=? AND dialog=? AND mid=? ORDER BY rowid ASC LIMIT 100",args);
             try {while(e.moveToNext())events.add(new Entry(e));} finally {e.close();}
+            Cursor files=database.rawQuery("SELECT path FROM media_versions WHERE account=? AND dialog=? AND mid=? ORDER BY saved_at ASC LIMIT 64",args);
+            try {
+              while(files.moveToNext()){
+                String path=files.getString(0);
+                if(path!=null&&new java.io.File(path).isFile())mediaVersions.add(path);
+              }
+            } finally {files.close();}
           }
         }catch(Exception ex){FileLog.e(ex);}
       }
-      Detail result=new Detail(events,value,date,sender,outgoing,deleted,mediaPath);
+      Detail result=new Detail(events,value,date,sender,outgoing,deleted,mediaPath,mediaVersions);
       if(callback!=null)AndroidUtilities.runOnUIThread(()->callback.accept(result));
     });
   }
@@ -473,7 +496,7 @@ public final class MelgramHistory {
             messages=count(d,"messages",filter,args);
             edits=count(d,"events",filter+" AND kind=1",args);
             deletions=count(d,"events",filter+" AND kind=2",args);
-            Cursor c=d.rawQuery("SELECT COUNT(*),COALESCE(SUM(media_bytes),0) FROM messages WHERE "+filter+" AND media_path IS NOT NULL",args);
+            Cursor c=d.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM media_versions WHERE "+filter,args);
             try {if(c.moveToFirst()){mediaCount=c.getInt(0);mediaBytes=c.getLong(1);}}finally{c.close();}
             java.io.File f=ApplicationLoader.applicationContext.getDatabasePath("melgram_history.db");
             dbBytes=f.length();
@@ -485,12 +508,22 @@ public final class MelgramHistory {
     });
   }
 
+  private static ArrayList<String> collectMedia(SQLiteDatabase database,String where,String[] args){
+    ArrayList<String> files=new ArrayList<>();
+    Cursor cursor=database.rawQuery("SELECT path FROM media_versions WHERE "+where,args);
+    try {
+      while(cursor.moveToNext()) {
+        String path=cursor.getString(0);
+        if(path!=null)files.add(path);
+      }
+    } finally {cursor.close();}
+    return files;
+  }
+
   private static void clearRows(SQLiteDatabase database,int account,long dialog){
     String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
     String cond="account=?"+(dialog==0?"":" AND dialog=?");
-    Cursor media=database.rawQuery("SELECT media_path FROM messages WHERE "+cond+" AND media_path IS NOT NULL",args);
-    try {while(media.moveToNext())MelgramMediaArchive.delete(media.getString(0));}
-    finally {media.close();}
+    database.delete("media_versions",cond,args);
     database.delete("messages",cond,args);
     database.delete("events",cond,args);
     String prefix=dialog==0?account+":":account+":"+dialog+":";
@@ -498,43 +531,58 @@ public final class MelgramHistory {
     for(String key:new ArrayList<>(badgeObservers.keySet()))if(key.startsWith(prefix))badgeObservers.remove(key);
   }
 
-  /** Clear only saved attachments; message edits and deleted text stay intact. */
+  /** Clear just media copies; preserve text, original messages and all edit events. */
   public static void clearMediaArchive(int account,long dialog,Runnable callback){
     queue.execute(()->{
+      ArrayList<String> files=new ArrayList<>();
+      boolean completed=false;
       synchronized(lock){
         try {
           SQLiteDatabase database=db();
           if(database!=null){
             String where="account=?"+(dialog==0?"":" AND dialog=?");
             String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
-            Cursor c=database.rawQuery("SELECT media_path FROM messages WHERE "+where+" AND media_path IS NOT NULL",args);
-            try { while(c.moveToNext())MelgramMediaArchive.delete(c.getString(0)); }
-            finally { c.close(); }
-            ContentValues v=new ContentValues();
-            v.putNull("media_path");v.put("media_bytes",0);
-            database.update("messages",v,where,args);
+            files=collectMedia(database,where,args);
+            database.beginTransaction();
+            try{
+              database.delete("media_versions",where,args);
+              ContentValues empty=new ContentValues();
+              empty.putNull("media_path");empty.put("media_bytes",0);
+              database.update("messages",empty,where,args);
+              database.setTransactionSuccessful();
+              completed=true;
+            } finally{database.endTransaction();}
           }
-        }catch(Exception e){FileLog.e(e);}
+        } catch(Exception e){FileLog.e(e);}
       }
+      if(completed)for(String path:files)MelgramMediaArchive.delete(path);
       if(callback!=null)AndroidUtilities.runOnUIThread(callback);
     });
   }
 
-  /** Per-chat/account cleanup never deletes another account's archive. */
+  /** Scoped deletion: only remove media files after the database transaction succeeds. */
   public static void clearArchive(int account,long dialog,Runnable callback){
     queue.execute(()->{
+      ArrayList<String> files=new ArrayList<>();
+      boolean completed=false;
       synchronized(lock){
-        try {
+        try{
           SQLiteDatabase database=db();
           if(database!=null){
+            String where="account=?"+(dialog==0?"":" AND dialog=?");
+            String[] args=dialog==0?new String[]{""+account}:new String[]{""+account,""+dialog};
+            files=collectMedia(database,where,args);
             database.beginTransaction();
-            try {clearRows(database,account,dialog);database.setTransactionSuccessful();}
+            try {clearRows(database,account,dialog);database.setTransactionSuccessful();completed=true;}
             finally {database.endTransaction();}
-            // Reclaim SQLite pages after deleting the archive, outside a transaction.
-            try {database.execSQL("VACUUM");}catch(Exception e){FileLog.e(e);}
+            if(completed) {
+              try{database.execSQL("VACUUM");}catch(Exception e){FileLog.e(e);}
+            }
           }
-        } catch(Exception ex){FileLog.e(ex);}
+        }catch(Exception ex){FileLog.e(ex);}
       }
+      if(completed)for(String path:files)MelgramMediaArchive.delete(path);
+      if(completed&&dialog!=0)org.telegram.ui.MelgramInlineMarkers.onArchiveChanged(account,dialog);
       if(callback!=null)AndroidUtilities.runOnUIThread(callback);
     });
   }
