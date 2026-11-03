@@ -238,6 +238,48 @@ public final class MelgramHistory {
       }
     }});
   }
+  /**
+   * Preserve locally visible messages without changing NotificationCenter's
+   * arguments. ChatActivity receives only a filtered LOCAL deletion list.
+   * Telegram's MessagesStorage still processes every original deletion.
+   */
+  public static ArrayList<Integer> preserveVisibleDeletes(int account,long dialog,
+        long channelId,boolean isChannel,boolean supportedChat,
+        ArrayList<Integer> ids,ArrayList<MessageObject> visible) {
+    if(ids==null||visible==null||ids.isEmpty()||!supportedChat
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+       ||!MelgramConfig.historyDialogEnabled(account,dialog)
+       ||dialog==0||DialogObject.isEncryptedDialog(dialog))return ids;
+    if(channelId!=0 && (dialog>=0||dialog!=-channelId))return ids;
+    if(channelId==0 && isChannel)return ids;
+    if(dialog>0&&!MelgramConfig.get(MelgramConfig.HISTORY_BOTS)){
+      TLRPC.User user=MessagesController.getInstance(account).getUser(dialog);
+      if(user!=null&&user.bot)return ids;
+    }
+
+    HashSet<Integer> candidates=new HashSet<>(ids);
+    HashSet<Integer> preserved=new HashSet<>();
+    ArrayList<TLRPC.Message> snapshots=new ArrayList<>();
+    for(MessageObject item:visible){
+      if(item==null||item.messageOwner==null||item.getDialogId()!=dialog)continue;
+      int mid=item.getId();
+      if(mid<=0||!candidates.contains(mid)||preserved.contains(mid))continue;
+      TLRPC.Message m=item.messageOwner;
+      if(m.ttl>0||m.noforwards||m.action!=null)continue;
+      preserved.add(mid);
+      snapshots.add(m);
+    }
+    if(preserved.isEmpty())return ids;
+    // Capture the originals BEFORE queuing the local tombstones.
+    captureBatch(account,snapshots);
+    markDeleted(account,dialog,new ArrayList<>(preserved));
+    ArrayList<Integer> remaining=new ArrayList<>(ids.size());
+    for(Integer id:ids)if(id==null||!preserved.contains(id))remaining.add(id);
+    return remaining;
+  }
+
   public static void markDeleted(int account,long dialog,List<Integer> ids){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||dialog==0||!MelgramConfig.historyDialogEnabled(account,dialog))return;
     ArrayList<Integer> copy=new ArrayList<>(ids);
