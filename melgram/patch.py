@@ -513,14 +513,13 @@ def patch_features():
          after("\n            try { org.telegram.messenger.MelgramHistory.filterChatDeleteEvent(currentAccount, dialog_id, args); }\n"
                "            catch (Throwable exception) { FileLog.e(exception); }")),
     ])
-    # Show a compact edit/delete icon just before the message timestamp, not above text.
+    # AyuGram puts its marks INSIDE the timestamp text, so Telegram measures
+    # and lays out the full label correctly. Avoid floating overlay icons.
     melgram_cell = J + "ui/Cells/ChatMessageCell.java"
-    soft_feature("history_time_marker", "метки рядом со временем сообщений", [
+    soft_feature("history_ayu_timestamp", "метки AyuGram внутри времени сообщения", [
         (melgram_cell,
-         r"if \(effectDrawable != null\) \{\s*\n\s*if \(effectDrawableBounce == null\) \{",
-         lambda m: "if (!fromParent && timeLayout != null && currentMessageObject != null && !currentMessageObject.notime) {\n"
-                   "            org.telegram.ui.MelgramBubbleOverlay.draw(canvas, currentMessageObject, getTimeX(), getTimeY(), this);\n"
-                   "        }\n        " + m.group(0)),
+         r"if \(currentMessageObject\.messageOwner\.video_processing_pending\) \{\s*timeString = formatString\(R\.string\.ScheduledTimeApprox, timeString\);\s*\}",
+         after("\n        timeString = org.telegram.messenger.MelgramHistory.formatAyuTime(currentAccount, messageObject, edited, timeString);")),
     ])
     # Telegram can temporarily mark an existing bot as unstarted if the first
     # cache load contains no messages. Reset that state when real history arrives.
