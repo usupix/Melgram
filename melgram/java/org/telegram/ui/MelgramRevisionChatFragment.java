@@ -91,7 +91,8 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
         for(MelgramHistory.Entry e:detail.events) {
             if(e.kind==1) {
                 String before=e.before==null?"":e.before;
-                if(active==null||!active.equals(before))addVersion(before,versionDate);
+                // A separate revision is saved at every edit, not just the first.
+                addVersion(before,versionDate);
                 active=e.after==null?"":e.after;
                 versionDate=(int)(e.time/1000L);
             }else if(e.kind==2&&active==null) {
