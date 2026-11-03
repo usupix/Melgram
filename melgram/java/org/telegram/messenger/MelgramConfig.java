@@ -36,6 +36,16 @@ public final class MelgramConfig {
     public static final String HISTORY_EDITS = "history_edits";
     public static final String HISTORY_INLINE = "history_inline";
     public static final String HISTORY_BOTS = "history_bots";
+    public static final String HISTORY_MEDIA = "history_media";
+
+    /** User-selected archive policy; account and dialog IDs are both part of the key. */
+    public static boolean historyDialogEnabled(int account, long dialog) {
+        return !get("history_disabled_" + account + "_" + dialog);
+    }
+
+    public static void setHistoryDialogEnabled(int account, long dialog, boolean enabled) {
+        set("history_disabled_" + account + "_" + dialog, !enabled);
+    }
     // ghost mode
     public static final String GHOST_READ = "ghost_read";
     public static final String GHOST_TYPING = "ghost_typing";
