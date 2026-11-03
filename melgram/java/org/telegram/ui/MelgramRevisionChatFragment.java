@@ -54,6 +54,7 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
     private VersionsAdapter adapter;
     private FrameLayout root;
     private String mediaPath;
+    private final ArrayList<String> mediaVersions=new ArrayList<>();
     private long sender;
     private boolean outgoing;
     private boolean destroyed;
@@ -70,6 +71,9 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
             sender=detail.sender;
             outgoing=detail.outgoing;
             mediaPath=detail.mediaPath;
+            mediaVersions.clear();
+            mediaVersions.addAll(detail.mediaVersions);
+            if(mediaVersions.isEmpty()&&mediaPath!=null&&new File(mediaPath).isFile())mediaVersions.add(mediaPath);
             updateTimeline(detail);
             if(actionBar!=null)actionBar.setSubtitle("Сообщение #"+message+" · "+revisions.size()+" версий");
             if(adapter!=null)adapter.notifyDataSetChanged();
@@ -135,29 +139,52 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
         return root;
     }
 
+    private void openSavedMedia(String path) {
+        Context context=getParentActivity();
+        if(context==null)return;
+        try{
+            File file=new File(path);
+            if(!file.isFile())throw new java.io.FileNotFoundException(path);
+            Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".provider",file);
+            Intent intent=new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri,MelgramMediaArchive.mimeType(path));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            context.startActivity(intent);
+        }catch(Exception ex){
+            org.telegram.messenger.FileLog.e(ex);
+            android.widget.Toast.makeText(context,"Не удалось открыть вложение",android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void showMediaLink(FrameLayout frame){
-        if(mediaPath==null||mediaPath.isEmpty()||!new File(mediaPath).isFile())return;
-        if(frame.findViewWithTag("saved_attachment")!=null)return;
+        if(mediaVersions.isEmpty()||frame.findViewWithTag("saved_attachment")!=null)return;
         Context context=frame.getContext();
         TextView button=new TextView(context);
         button.setTag("saved_attachment");
-        button.setText("Открыть сохранённое вложение");
+        button.setText(mediaVersions.size()==1?"Открыть сохранённое вложение":
+                "Сохранённые вложения · "+mediaVersions.size());
         button.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
         button.setTextSize(15);
         button.setGravity(android.view.Gravity.CENTER);
         button.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         button.setOnClickListener(v->{
-            try{
-                File f=new File(mediaPath);
-                Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".provider",f);
-                Intent intent=new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri,MelgramMediaArchive.mimeType(mediaPath));
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                context.startActivity(intent);
-            }catch(Exception ex){
-                org.telegram.messenger.FileLog.e(ex);
-                android.widget.Toast.makeText(context,"Не удалось открыть вложение",android.widget.Toast.LENGTH_SHORT).show();
+            if(mediaVersions.size()==1){
+                openSavedMedia(mediaVersions.get(0));
+                return;
             }
+            CharSequence[] labels=new CharSequence[mediaVersions.size()];
+            for(int i=0;i<mediaVersions.size();i++){
+                File f=new File(mediaVersions.get(i));
+                String type=MelgramMediaArchive.mimeType(f.getAbsolutePath());
+                labels[i]="Версия "+(i+1)+" · "+type+" · "+(f.length()/1024L)+" КБ";
+            }
+            org.telegram.ui.ActionBar.AlertDialog.Builder builder=
+                new org.telegram.ui.ActionBar.AlertDialog.Builder(context);
+            builder.setTitle("Сохранённые версии вложения");
+            builder.setItems(labels,(d,index)->{
+                if(index>=0&&index<mediaVersions.size())openSavedMedia(mediaVersions.get(index));
+            });
+            showDialog(builder.create());
         });
         listView.setPadding(0,AndroidUtilities.dp(48),0,0);
         frame.addView(button,LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT,48,android.view.Gravity.TOP));
