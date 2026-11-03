@@ -293,45 +293,44 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);}}
     return out;
   }
-  /** Do not allow regular Telegram cache cleanup to remove a locally saved message. */
+  /** Preserve only messages belonging to the specific dialog being deleted. */
   public static void retainDeletedInStorage(int account,long dialog,ArrayList<Integer> ids){
-    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
-      ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||ids==null||ids.isEmpty())return;
-    ArrayList<Integer> keep=new ArrayList<>();
-    for(int mid:ids)if(exists(account,dialog,mid,false))keep.add(mid);
-    if(!keep.isEmpty()){
-      if(dialog!=0)markDeleted(account,dialog,keep);
-      else for(Integer mid:keep)markDeletedUnknown(account,mid);
-      ids.removeAll(keep);
-    }
-  }
-  /** Omit locally retained messages from visual deletion events in the chat. */
-  @SuppressWarnings("unchecked")
-  public static void filterDeleteEvent(int account,Object[] args){
-    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
-       ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)||args==null||args.length<3)return;
-    if(Boolean.TRUE.equals(args[2]) || !(args[0] instanceof ArrayList) || !(args[1] instanceof Long))return;
-    for(Object mid : (ArrayList<?>)args[0]) if(!(mid instanceof Integer))return;
-    ArrayList<Integer> source=(ArrayList<Integer>)args[0];
-    long channel=(Long)args[1];long dialog=channel>0?-channel:0;
-    ArrayList<Integer> remaining=new ArrayList<>(source);
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+      ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+      ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)
+      ||dialog==0||ids==null||ids.isEmpty())return;
     ArrayList<Integer> retained=new ArrayList<>();
-    for(Integer mid:source){
-      if(mid!=null&&exists(account,dialog,mid,false)){remaining.remove(mid);retained.add(mid);}
+    for(Integer mid:ids){
+      if(mid!=null&&exists(account,dialog,mid,false))retained.add(mid);
     }
     if(!retained.isEmpty()){
-      args[0]=remaining;
-      if(dialog!=0)markDeleted(account,dialog,retained);
-      else for(Integer mid:retained)markDeletedUnknown(account,mid);
+      markDeleted(account,dialog,retained);
+      ids.removeAll(retained);
     }
   }
-  private static void markDeletedUnknown(int a,int mid){
-    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return;
-      Cursor c=d.rawQuery("SELECT dialog FROM messages WHERE account=? AND mid=?",new String[]{""+a,""+mid});
-      ArrayList<Long> dialogs=new ArrayList<>();
-      try{while(c.moveToNext())dialogs.add(c.getLong(0));}finally{c.close();}
-      for(long dialog:dialogs)markDeleted(a,dialog,java.util.Collections.singletonList(mid));
-    }catch(Exception e){FileLog.e(e);}}
+  /** Filter only the currently opened chat, never every dialog with the same id. */
+  @SuppressWarnings("unchecked")
+  public static void filterChatDeleteEvent(int account,long dialog,Object[] args){
+    if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_DELETES)
+       ||dialog==0||DialogObject.isEncryptedDialog(dialog)
+       ||args==null||args.length<3||Boolean.TRUE.equals(args[2])
+       ||!(args[0] instanceof ArrayList)||!(args[1] instanceof Long))return;
+    long channel=(Long)args[1];
+    if(channel>0&&dialog!=-channel)return;
+    for(Object mid:(ArrayList<?>)args[0])if(!(mid instanceof Integer))return;
+    ArrayList<Integer> original=(ArrayList<Integer>)args[0];
+    ArrayList<Integer> retained=new ArrayList<>();
+    for(Integer mid:original){
+      if(mid!=null&&exists(account,dialog,mid,false))retained.add(mid);
+    }
+    if(!retained.isEmpty()){
+      ArrayList<Integer> remaining=new ArrayList<>(original);
+      remaining.removeAll(retained);
+      args[0]=remaining;
+      markDeleted(account,dialog,retained);
+    }
   }
   /** Display concise in-bubble marker; the actual message text stays intact. */
   public static CharSequence decorate(int account,TLRPC.Message message,CharSequence text){
