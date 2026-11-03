@@ -13,7 +13,7 @@ public final class MelgramHistory {
   private static String badgeKey(int a,long dialog,int mid){return a+":"+dialog+":"+mid;}
   private static int badgeState(int a,long dialog,int mid){
     String key=badgeKey(a,dialog,mid);
-    Integer cached=badges.get(key);if(cached!=null)return cached;
+    Integer cached=badges.get(key);if(cached!=null&&cached>=0)return cached;
     int result=0;
     synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return 0;
       Cursor c=d.rawQuery("SELECT deleted FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",new String[]{""+a,""+dialog,""+mid});
