@@ -15,7 +15,7 @@ public final class MelgramBubbleOverlay {
     private MelgramBubbleOverlay() {}
 
     public static boolean handleTouch(View cell, MotionEvent event, MessageObject message,
-                                      float timeX, float timeY) {
+                                      float timeX, float timeY, float measuredWidth) {
         if (message == null || message.getId() <= 0 || cell == null || event == null
                 || !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
                 || !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)) {
@@ -29,10 +29,10 @@ public final class MelgramBubbleOverlay {
         }
 
         float dp = AndroidUtilities.density;
-        float width = (status & 1) != 0 ? ((status & 2) != 0 ? 110f : 86f) : 24f;
+        float width = Math.max(measuredWidth, 28f * dp);
         float x = event.getX(), y = event.getY();
         boolean hit = x >= timeX - 4f * dp && x <= timeX + width * dp
-                && y >= timeY - 6f * dp && y <= timeY + 19f * dp;
+                && y >= timeY - 10f * dp && y <= timeY + 20f * dp;
 
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
