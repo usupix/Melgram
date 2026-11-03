@@ -154,7 +154,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
         items.add(UItem.asButtonCheck(ID_HISTORY_ENABLED, "Сохранять историю", "Локальный архив текста и подписей к медиа").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)));
         items.add(UItem.asButtonCheck(ID_HISTORY_DELETES, "Удалённые сообщения", "Сохранять удалённые собеседником сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_DELETES)));
         items.add(UItem.asButtonCheck(ID_HISTORY_EDITS, "История изменений", "Сохранять предыдущий текст сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)));
-        items.add(UItem.asButtonCheck(ID_HISTORY_INLINE, "Оставлять удалённые в чате", "Отмечать удалённые и изменённые сообщения прямо в переписке").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_INLINE)));
+        items.add(UItem.asButtonCheck(ID_HISTORY_INLINE, "Показывать удаления в чате", "Полупрозрачные архивные сообщения при повторной загрузке переписки, метки правок рядом со временем").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_INLINE)));
         items.add(UItem.asButtonCheck(ID_HISTORY_BOTS, "Сохранять сообщения ботов", "По умолчанию выключено: боты часто изменяют и удаляют сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_BOTS)));
         items.add(UItem.asButtonCheck(ID_HISTORY_MEDIA,"Сохранять загруженные медиа","Только файлы, уже скачанные на устройство, до 32 МБ каждый").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_MEDIA)));
         items.add(UItem.asButton(ID_HISTORY_VIEW, R.drawable.msg_edit, "Посмотреть историю"));
