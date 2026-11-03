@@ -71,12 +71,23 @@ public final class MelgramInlineMarkers {
     private static void refreshVisibleCells(RecyclerView list,int account){
         RecyclerView.Adapter adapter=list.getAdapter();
         if(adapter==null)return;
+        org.telegram.ui.ActionBar.BaseFragment top=LaunchActivity.getSafeLastFragment();
+        boolean selecting=top instanceof ChatActivity
+                && top.getActionBar()!=null && top.getActionBar().isActionModeShowed();
         for(int i=0;i<list.getChildCount();i++){
             View child=list.getChildAt(i);
             if(!(child instanceof ChatMessageCell))continue;
             ChatMessageCell cell=(ChatMessageCell)child;
             MessageObject message=cell.getPrimaryMessageObject();
             if(message==null||message.currentAccount!=account||message.getId()<=0)continue;
+            // Telegram's delete-confirmation callback hides the action bar,
+            // but keeping the bubble means the old selection cell survives.
+            // Clear the checkbox explicitly when selection mode has closed.
+            if(!selecting){
+                cell.setDrawSelectionBackground(false);
+                cell.setChecked(false,false,false);
+                cell.setCheckBoxVisible(false,false);
+            }
             int flags=MelgramHistory.cachedStatus(account,message.getDialogId(),message.getId());
             boolean deleted=MelgramConfig.get(MelgramConfig.HISTORY_DELETES)&&(flags&2)!=0;
             float alpha=deleted?0.65f:1.0f;
