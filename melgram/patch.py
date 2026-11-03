@@ -480,6 +480,18 @@ def patch_features():
         (ca, r"\} else if \(id == report\) \{",
          lambda m: "} else if (id == 18009511) {\n                    presentFragment(new org.telegram.ui.MelgramHistoryFragment(dialog_id));\n                " + m.group(0)),
     ])
+    # Reinsert archived text into the same batch when Telegram loads messages.
+    # Only fill gaps within a loaded range, as AyuGram does. Never inject into
+    # secret chats, topics, scheduled messages, or otherwise special views.
+    soft_feature("history_restore_inline", "возвращать удалённые из архива в переписку", [
+        (J + "ui/ChatActivity.java",
+         r"ArrayList<MessageObject> messArr = \(ArrayList<MessageObject>\) args\[2\];",
+         after("\n        if (mode == MODE_DEFAULT && currentEncryptedChat == null && !isThreadChat() && !isTopic\n"
+               "                && ((Long) args[0]) == dialog_id) {\n"
+               "            org.telegram.messenger.MelgramHistory.injectDeletedBatch(currentAccount, dialog_id,\n"
+               "                    messArr, currentChat != null && ChatObject.isChannel(currentChat));\n"
+               "        }")),
+    ])
     # AyuGram-like locally retained message bubbles and edit markers
     soft_feature("history_keep_storage", "сохранять удалённые сообщения в базе чата", [
         (J + "messenger/MessagesStorage.java",
