@@ -80,7 +80,7 @@ public final class MelgramChatTools {
             return true;
         }
         if (option == OPTION_HISTORY) {
-            fragment.presentFragment(new MelgramHistoryFragment(message.getDialogId(), message.getId()));
+            fragment.presentFragment(new MelgramRevisionChatFragment(message.getDialogId(), message.getId()));
             return true;
         }
         if (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 28
