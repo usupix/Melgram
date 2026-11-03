@@ -506,13 +506,11 @@ def patch_features():
                "            if (messages.isEmpty()) return new ArrayList<>();\n"
                "        }")),
     ])
-    soft_feature("history_filter_deletion", "не убирать сохранённые сообщения с экрана", [
-        (J + "messenger/NotificationCenter.java",
-         r"public void postNotificationName\(final int id, Object\.\.\. args\) \{",
-         after("\n        if (id == messagesDeleted) {\n"
-               "            try { org.telegram.messenger.MelgramHistory.filterDeleteEvent(currentAccount, args); }\n"
-               "            catch (Throwable exception) { FileLog.e(exception); }\n"
-               "        }")),
+    soft_feature("history_filter_deletion", "не убирать сохранённые сообщения из текущего чата", [
+        (J + "ui/ChatActivity.java",
+         r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
+         after("\n            try { org.telegram.messenger.MelgramHistory.filterChatDeleteEvent(currentAccount, dialog_id, args); }\n"
+               "            catch (Throwable exception) { FileLog.e(exception); }")),
     ])
     # Show a compact edit/delete icon just before the message timestamp, not above text.
     melgram_cell = J + "ui/Cells/ChatMessageCell.java"
