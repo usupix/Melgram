@@ -98,9 +98,9 @@ public final class MelgramHistory {
   private static SQLiteDatabase db(){
     Context ctx=ApplicationLoader.applicationContext;
     if(ctx==null)return null;
-    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,3){
+    if(helper==null)helper=new SQLiteOpenHelper(ctx,"melgram_history.db",null,4){
       public void onCreate(SQLiteDatabase d){
-        d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,msg_date INTEGER DEFAULT 0,sender_id INTEGER DEFAULT 0,is_out INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
+        d.execSQL("CREATE TABLE messages(account INTEGER,dialog INTEGER,mid INTEGER,text TEXT,edit_date INTEGER,deleted INTEGER DEFAULT 0,msg_date INTEGER DEFAULT 0,sender_id INTEGER DEFAULT 0,is_out INTEGER DEFAULT 0,media_path TEXT,media_bytes INTEGER DEFAULT 0,PRIMARY KEY(account,dialog,mid))");
         d.execSQL("CREATE INDEX IF NOT EXISTS history_deleted_range ON messages(account,dialog,deleted,mid)");
         d.execSQL("CREATE TABLE events(account INTEGER,dialog INTEGER,mid INTEGER,kind INTEGER,before_text TEXT,after_text TEXT,time INTEGER)");
         d.execSQL("CREATE INDEX IF NOT EXISTS history_event_message ON events(account,dialog,mid,kind)");
@@ -112,6 +112,10 @@ public final class MelgramHistory {
           d.execSQL("ALTER TABLE messages ADD COLUMN sender_id INTEGER DEFAULT 0");
           d.execSQL("ALTER TABLE messages ADD COLUMN is_out INTEGER DEFAULT 0");
           d.execSQL("CREATE INDEX IF NOT EXISTS history_deleted_range ON messages(account,dialog,deleted,mid)");
+        }
+        if(a<4){
+          d.execSQL("ALTER TABLE messages ADD COLUMN media_path TEXT");
+          d.execSQL("ALTER TABLE messages ADD COLUMN media_bytes INTEGER DEFAULT 0");
         }
       }
     };
@@ -127,10 +131,12 @@ public final class MelgramHistory {
     final int account,id,date,editDate;
     final long dialog,sender;
     final boolean outgoing;
-    final String text;
-    Snapshot(int account,int id,int date,int editDate,long dialog,long sender,boolean outgoing,String text){
+    final String text,mediaSource;
+    String savedMedia;
+    Snapshot(int account,int id,int date,int editDate,long dialog,long sender,boolean outgoing,String text,String mediaSource){
       this.account=account;this.id=id;this.date=date;this.editDate=editDate;
-      this.dialog=dialog;this.sender=sender;this.outgoing=outgoing;this.text=text;
+      this.dialog=dialog;this.sender=sender;this.outgoing=outgoing;
+      this.text=text;this.mediaSource=mediaSource;
     }
   }
   private static Snapshot snapshot(int a,TLRPC.Message m){
@@ -153,7 +159,14 @@ public final class MelgramHistory {
       else if(m.from_id.chat_id!=0)sender=-m.from_id.chat_id;
       else if(m.from_id.channel_id!=0)sender=-m.from_id.channel_id;
     }
-    return new Snapshot(a,m.id,m.date,m.edit_date,did,sender,m.out,value);
+    String mediaSource=null;
+    if(m.media!=null&&MelgramConfig.get(MelgramConfig.HISTORY_MEDIA)){
+      try {
+        java.io.File cached=FileLoader.getInstance(a).getPathToMessage(m);
+        if(cached!=null&&cached.isFile()&&cached.length()>0)mediaSource=cached.getAbsolutePath();
+      }catch(Throwable e){FileLog.e(e);}
+    }
+    return new Snapshot(a,m.id,m.date,m.edit_date,did,sender,m.out,value,mediaSource);
   }
   private static void save(SQLiteDatabase d,Snapshot snap){
     String[] args={""+snap.account,""+snap.dialog,""+snap.id};
@@ -164,6 +177,10 @@ public final class MelgramHistory {
     v.put("account",snap.account);v.put("dialog",snap.dialog);v.put("mid",snap.id);
     v.put("text",snap.text);v.put("edit_date",snap.editDate);
     v.put("msg_date",snap.date);v.put("sender_id",snap.sender);v.put("is_out",snap.outgoing?1:0);
+    if(snap.savedMedia!=null){
+      v.put("media_path",snap.savedMedia);
+      v.put("media_bytes",new java.io.File(snap.savedMedia).length());
+    }
     if(old==null){
       v.put("deleted",0);
       d.insertWithOnConflict("messages",null,v,SQLiteDatabase.CONFLICT_IGNORE);
@@ -173,6 +190,12 @@ public final class MelgramHistory {
         event(d,snap.account,snap.dialog,snap.id,1,old,snap.text);
       }
       d.update("messages",v,"account=? AND dialog=? AND mid=?",args);
+    }else if(deleted==0&&snap.savedMedia!=null){
+      // Cached attachment may arrive after the first message snapshot.
+      ContentValues media=new ContentValues();
+      media.put("media_path",snap.savedMedia);
+      media.put("media_bytes",new java.io.File(snap.savedMedia).length());
+      d.update("messages",media,"account=? AND dialog=? AND mid=?",args);
     }
   }
   public static void capture(int account,TLRPC.Message message){
@@ -187,7 +210,15 @@ public final class MelgramHistory {
       if(item!=null)copies.add(item);
     }
     if(copies.isEmpty())return;
-    queue.execute(()->{synchronized(lock){
+    queue.execute(()->{
+      // Copy cached files before opening the SQLite transaction. This can
+      // take time and must never hold the database lock during disk I/O.
+      for(Snapshot item:copies){
+        if(item.mediaSource!=null){
+          item.savedMedia=MelgramMediaArchive.persist(item.account,item.dialog,item.id,item.mediaSource);
+        }
+      }
+      synchronized(lock){
       SQLiteDatabase database=null;
       boolean transaction=false;
       try{
