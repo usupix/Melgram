@@ -19,7 +19,7 @@ public final class MelgramBubbleOverlay {
     private static final java.util.WeakHashMap<View,Boolean> pressed=new java.util.WeakHashMap<>();
 
     public static boolean handleTouch(View cell,android.view.MotionEvent event,MessageObject message,float timeX,float timeY){
-        if(message==null||cell==null||event==null
+        if(message==null||message.getId()<=0||cell==null||event==null
                 ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
                 ||!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED))return false;
         int action=event.getActionMasked();
@@ -50,7 +50,7 @@ public final class MelgramBubbleOverlay {
     private MelgramBubbleOverlay() {}
 
     public static void draw(Canvas canvas, MessageObject message, float timeX, float timeY, View cell) {
-        if (message == null || message.messageOwner == null || cell == null
+        if (message == null || message.messageOwner == null || message.getId() <= 0 || cell == null
                 || !MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
                 || !MelgramConfig.get(MelgramConfig.HISTORY_INLINE)) {
             return;
