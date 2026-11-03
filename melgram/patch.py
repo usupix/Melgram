@@ -492,6 +492,11 @@ def patch_features():
                "                    messArr, currentChat != null && ChatObject.isChannel(currentChat));\n"
                "        }")),
     ])
+    soft_feature("history_touch_marker", "нажатие на значок истории рядом со временем", [
+        (J + "ui/Cells/ChatMessageCell.java",
+         r"public boolean onTouchEvent\(MotionEvent event\) \{",
+         after("\n        if (org.telegram.ui.MelgramBubbleOverlay.handleTouch(this, event, currentMessageObject, getTimeX(), getTimeY())) return true;")),
+    ])
     # AyuGram-like locally retained message bubbles and edit markers
     soft_feature("history_keep_storage", "сохранять удалённые сообщения в базе чата", [
         (J + "messenger/MessagesStorage.java",
