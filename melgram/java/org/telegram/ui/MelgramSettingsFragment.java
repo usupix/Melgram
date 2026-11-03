@@ -56,6 +56,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
     private static final int ID_HISTORY_EDITS = 602;
     private static final int ID_HISTORY_VIEW = 603;
     private static final int ID_HISTORY_INLINE = 604;
+    private static final int ID_HISTORY_BOTS = 605;
 
     private static final String[] GHOST_TITLES = {"Не читать сообщения", "Не отправлять «печатает…»", "Не отправлять статус «в сети»", "Не читать истории"};
     private static final String[] GHOST_SUBTITLES = {
@@ -152,6 +153,7 @@ public class MelgramSettingsFragment extends UniversalFragment {
         items.add(UItem.asButtonCheck(ID_HISTORY_DELETES, "Удалённые сообщения", "Сохранять удалённые собеседником сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_DELETES)));
         items.add(UItem.asButtonCheck(ID_HISTORY_EDITS, "История изменений", "Сохранять предыдущий текст сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)));
         items.add(UItem.asButtonCheck(ID_HISTORY_INLINE, "Оставлять удалённые в чате", "Отмечать удалённые и изменённые сообщения прямо в переписке").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_INLINE)));
+        items.add(UItem.asButtonCheck(ID_HISTORY_BOTS, "Сохранять сообщения ботов", "По умолчанию выключено: боты часто изменяют и удаляют сообщения").setChecked(MelgramConfig.get(MelgramConfig.HISTORY_BOTS)));
         items.add(UItem.asButton(ID_HISTORY_VIEW, R.drawable.msg_edit, "Посмотреть историю"));
         items.add(UItem.asShadow("Данные сохраняются только на телефоне, отдельно от кеша. Секретные и самоуничтожающиеся сообщения не сохраняются."));
         items.add(UItem.asHeader("Оформление"));
@@ -255,8 +257,8 @@ public class MelgramSettingsFragment extends UniversalFragment {
             MelgramUpdater.checkManual(getParentActivity());
         } else if (item.id == ID_HISTORY_VIEW) {
             presentFragment(new MelgramHistoryFragment());
-        } else if (item.id == ID_HISTORY_ENABLED || item.id == ID_HISTORY_DELETES || item.id == ID_HISTORY_EDITS || item.id == ID_HISTORY_INLINE) {
-            String key = item.id == ID_HISTORY_ENABLED ? MelgramConfig.HISTORY_ENABLED : item.id == ID_HISTORY_DELETES ? MelgramConfig.HISTORY_DELETES : item.id == ID_HISTORY_INLINE ? MelgramConfig.HISTORY_INLINE : MelgramConfig.HISTORY_EDITS;
+        } else if (item.id == ID_HISTORY_ENABLED || item.id == ID_HISTORY_DELETES || item.id == ID_HISTORY_EDITS || item.id == ID_HISTORY_INLINE || item.id == ID_HISTORY_BOTS) {
+            String key = item.id == ID_HISTORY_ENABLED ? MelgramConfig.HISTORY_ENABLED : item.id == ID_HISTORY_DELETES ? MelgramConfig.HISTORY_DELETES : item.id == ID_HISTORY_INLINE ? MelgramConfig.HISTORY_INLINE : item.id == ID_HISTORY_BOTS ? MelgramConfig.HISTORY_BOTS : MelgramConfig.HISTORY_EDITS;
             MelgramConfig.set(key, !MelgramConfig.get(key));
             listView.adapter.update(true);
         } else if (item.id == ID_GHOST_ALL) {
