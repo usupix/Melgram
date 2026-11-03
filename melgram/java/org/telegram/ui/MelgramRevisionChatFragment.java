@@ -51,7 +51,7 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
     @Override public boolean onFragmentCreate(){
         super.onFragmentCreate();
         ArrayList<MelgramHistory.Entry> events=
-                MelgramHistory.forMessage(UserConfig.selectedAccount,dialog,message);
+                MelgramHistory.forMessage(currentAccount,dialog,message);
         Collections.reverse(events);
         String previous=null;
         long finalTimestamp=System.currentTimeMillis();
