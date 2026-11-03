@@ -43,7 +43,7 @@ public class MelgramHistoryFragment extends UniversalFragment {
       items.add(UItem.asButton(CHAT_CLEAR,R.drawable.msg_delete,"Очистить этот чат"));
     }
     items.add(UItem.asHeader("Удалённые и изменённые"));
-    items.add(UItem.asShadow("История хранится на устройстве отдельно от кеша Telegram. Сохраняется только текст и подписи."));
+    items.add(UItem.asShadow("История хранится на устройстве отдельно от кеша Telegram. Текст и подписи сохраняются локально; уже скачанные вложения — только при включённом архивировании медиа."));
     if(loading)items.add(UItem.asShadow("Загружаю историю…"));
     else if(entries.isEmpty())items.add(UItem.asShadow("История пуста. Включи сохранение, чтобы видеть новые удаления и правки."));
     for(int i=0;i<entries.size();i++){
