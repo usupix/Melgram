@@ -12,7 +12,7 @@ import java.util.Locale;
 
 /** Local-only storage management, scoped to the current Telegram account. */
 public class MelgramStorageFragment extends UniversalFragment {
-    private static final int CLEAR=1,HISTORY=2;
+    private static final int CLEAR=1,HISTORY=2,CLEAR_MEDIA=3;
     private MelgramHistory.ArchiveStats stats;
     private boolean disposed;
 
@@ -53,6 +53,7 @@ public class MelgramStorageFragment extends UniversalFragment {
                 " (общая для аккаунтов). Сохранённые медиа: "+stats.mediaCount+
                 " файлов, "+size(stats.mediaBytes)+"."));
         }
+        items.add(UItem.asButton(CLEAR_MEDIA,R.drawable.msg_delete,"Очистить только сохранённые медиа"));
         items.add(UItem.asButton(CLEAR,R.drawable.msg_delete,"Очистить архив этого аккаунта"));
         items.add(UItem.asShadow("Удаляются сохранённые сообщения, история изменений и копии вложений текущего аккаунта. Переписка на серверах Telegram не затрагивается. Сохраняются только медиа, уже скачанные на устройство; лимит файла — 32 МБ, общий лимит архива — 512 МБ."));
     }
@@ -60,6 +61,13 @@ public class MelgramStorageFragment extends UniversalFragment {
     @Override protected void onClick(UItem item,View view,int position,float x,float y) {
         if(item.id==HISTORY){
             presentFragment(new MelgramHistoryFragment());
+        }else if(item.id==CLEAR_MEDIA&&getParentActivity()!=null){
+            AlertDialog.Builder b=new AlertDialog.Builder(getParentActivity());
+            b.setTitle("Удалить сохранённые медиа?");
+            b.setMessage("Текст и история правок сохранятся. Локальные копии вложений этого аккаунта будут удалены.");
+            b.setPositiveButton("Очистить",(d,w)->MelgramHistory.clearMediaArchive(currentAccount,0,()->reload()));
+            b.setNegativeButton("Отмена",null);
+            showDialog(b.create());
         }else if(item.id==CLEAR&&getParentActivity()!=null){
             AlertDialog.Builder b=new AlertDialog.Builder(getParentActivity());
             b.setTitle("Очистить архив этого аккаунта?");
