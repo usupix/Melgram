@@ -315,6 +315,13 @@ def after(code):
 
 
 def patch_features():
+    # The AndroidX FileProvider must explicitly expose the dedicated private
+    # media-archive folder; otherwise saved attachments cannot be opened.
+    # This is a required storage-integrity patch, not a silently skipped feature.
+    rx("TMessagesProj/src/main/res/xml/provider_paths.xml",
+       r'(<files-path name="cache" path="/cache/"/>)(?!\\s*<files-path name="melgram_saved_media")',
+       lambda m: m.group(1) + '\n    <files-path name="melgram_saved_media" path="/melgram_saved_media/" />',
+       label="доступ к архивным медиа через Android FileProvider")
     soft_feature("hide_stories", "скрыть истории", [
         (J + "ui/Stories/StoriesController.java", r"public boolean hasStories\(\) \{",
          after("\n        if (%s.hideStories()) return false;" % MC)),
