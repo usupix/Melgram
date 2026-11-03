@@ -75,29 +75,56 @@ public final class MelgramHistory {
     v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
     badges.put(badgeKey(a,dialog,id),kind==2?2:1);
   }
-  private static void save(SQLiteDatabase d,int a,TLRPC.Message m){
-    if(m==null||m.id<=0||m.ttl>0||m.noforwards||m.action!=null)return;
+  // Snapshot the message before Telegram changes its mutable TL objects.
+  private static final class Snapshot {
+    final int account,id,date,editDate;
+    final long dialog,sender;
+    final boolean outgoing;
+    final String text;
+    Snapshot(int account,int id,int date,int editDate,long dialog,long sender,boolean outgoing,String text){
+      this.account=account;this.id=id;this.date=date;this.editDate=editDate;
+      this.dialog=dialog;this.sender=sender;this.outgoing=outgoing;this.text=text;
+    }
+  }
+  private static Snapshot snapshot(int a,TLRPC.Message m){
+    if(m==null||m.id<=0||m.ttl>0||m.noforwards||m.action!=null)return null;
     long did=MessageObject.getDialogId(m);
-    if(did==0||DialogObject.isEncryptedDialog(did))return;
-    String text=m.message==null?"":m.message.toString();
-    if(text.length()>16384)text=text.substring(0,16384);
-    String[] args={""+a,""+did,""+m.id};
+    if(did==0||DialogObject.isEncryptedDialog(did))return null;
+    if(did>0&&!MelgramConfig.get(MelgramConfig.HISTORY_BOTS)){
+      TLRPC.User user=MessagesController.getInstance(a).getUser(did);
+      if(user!=null&&user.bot)return null;
+    }
+    String value=m.message==null?"":m.message.toString();
+    if(value.isEmpty()){
+      if(m.media==null)return null;
+      value="[Медиа без подписи]";
+    }
+    if(value.length()>16384)value=value.substring(0,16384);
+    long sender=0L;
+    if(m.from_id!=null){
+      if(m.from_id.user_id!=0)sender=m.from_id.user_id;
+      else if(m.from_id.chat_id!=0)sender=-m.from_id.chat_id;
+      else if(m.from_id.channel_id!=0)sender=-m.from_id.channel_id;
+    }
+    return new Snapshot(a,m.id,m.date,m.edit_date,did,sender,m.out,value);
+  }
+  private static void save(SQLiteDatabase d,Snapshot snap){
+    String[] args={""+snap.account,""+snap.dialog,""+snap.id};
     Cursor c=d.rawQuery("SELECT text,edit_date,deleted FROM messages WHERE account=? AND dialog=? AND mid=?",args);
     String old=null;int oldEdit=0,deleted=0;
     try{if(c.moveToFirst()){old=c.getString(0);oldEdit=c.getInt(1);deleted=c.getInt(2);}}finally{c.close();}
-    ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",did);v.put("mid",m.id);v.put("text",text);v.put("edit_date",m.edit_date);
-    v.put("msg_date",m.date);
-    long senderId=0L;
-    if(m.from_id!=null){
-      if(m.from_id.user_id!=0)senderId=m.from_id.user_id;
-      else if(m.from_id.chat_id!=0)senderId=-m.from_id.chat_id;
-      else if(m.from_id.channel_id!=0)senderId=-m.from_id.channel_id;
-    }
-    v.put("sender_id",senderId);
-    v.put("is_out",m.out?1:0);
-    if(old==null){v.put("deleted",0);d.insertWithOnConflict("messages",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
-    else if(deleted==0&&m.edit_date>=oldEdit&&!old.equals(text)){
-      if(MelgramConfig.get(MelgramConfig.HISTORY_EDITS))event(d,a,did,m.id,1,old,text);
+    ContentValues v=new ContentValues();
+    v.put("account",snap.account);v.put("dialog",snap.dialog);v.put("mid",snap.id);
+    v.put("text",snap.text);v.put("edit_date",snap.editDate);
+    v.put("msg_date",snap.date);v.put("sender_id",snap.sender);v.put("is_out",snap.outgoing?1:0);
+    if(old==null){
+      v.put("deleted",0);
+      d.insertWithOnConflict("messages",null,v,SQLiteDatabase.CONFLICT_IGNORE);
+    }else if(deleted==0&&snap.editDate>=oldEdit&&!old.equals(snap.text)){
+      // A different snapshot without an edit_date is not a Telegram edit.
+      if(snap.editDate>0&&MelgramConfig.get(MelgramConfig.HISTORY_EDITS)){
+        event(d,snap.account,snap.dialog,snap.id,1,old,snap.text);
+      }
       d.update("messages",v,"account=? AND dialog=? AND mid=?",args);
     }
   }
@@ -107,7 +134,12 @@ public final class MelgramHistory {
   }
   public static void captureBatch(int account,List<TLRPC.Message> messages){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)||messages==null)return;
-    final ArrayList<TLRPC.Message> copy=new ArrayList<>(messages);
+    final ArrayList<Snapshot> copies=new ArrayList<>();
+    for(TLRPC.Message message:messages){
+      Snapshot item=snapshot(account,message);
+      if(item!=null)copies.add(item);
+    }
+    if(copies.isEmpty())return;
     queue.execute(()->{synchronized(lock){
       SQLiteDatabase database=null;
       boolean transaction=false;
@@ -115,7 +147,7 @@ public final class MelgramHistory {
         database=db();if(database==null)return;
         database.beginTransaction();
         transaction=true;
-        for(TLRPC.Message message:copy)save(database,account,message);
+        for(Snapshot item:copies)save(database,item);
         database.setTransactionSuccessful();
       }catch(Exception e){FileLog.e(e);}
       finally{
