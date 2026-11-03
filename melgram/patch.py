@@ -539,7 +539,6 @@ def patch_features():
              "currentAccount, dialog_id, (Long)args[1], currentChat != null && ChatObject.isChannel(currentChat), "
              "chatMode == MODE_DEFAULT && currentEncryptedChat == null && !isThreadChat() && !isTopic "
              "&& !(Boolean)args[2] "
-             "&& !(args.length > 3 && Boolean.TRUE.equals(args[3])) "
              "&& !(args.length > 4 && Boolean.TRUE.equals(args[4])) "
              "&& !(args.length > 6 && args[6] instanceof java.util.ArrayList && !((java.util.ArrayList<?>)args[6]).isEmpty()), "
              "(ArrayList<Integer>)args[0], this.messages);\n"
