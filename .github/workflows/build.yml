@@ -40,8 +40,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: melgram-build
-  cancel-in-progress: false
+  group: melgram-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ACCOUNTS: ${{ inputs.accounts || '6' }}
