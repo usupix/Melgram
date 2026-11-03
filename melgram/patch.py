@@ -527,6 +527,23 @@ def patch_features():
                    "            updateBottomOverlay();\n"
                    "        }\n        " + m.group(0)),
     ])
+    # Keep only the local in-chat copy of deleted messages. Do not mutate
+    # NotificationCenter arguments, Telegram storage or observers in other chats.
+    # This is intentionally scoped to the ordinary, non-secret chat view.
+    soft_feature("history_preserve_visible", "мгновенное сохранение удалённых сообщений в открытом чате", [
+        (ca,
+         r"ArrayList<Integer> markAsDeletedMessages = \\(ArrayList<Integer>\\) args\\[0\\];\\s*\\n\\s*long channelId = \\(Long\\) args\\[1\\];",
+         lambda m: m.group(0).replace(
+             "ArrayList<Integer> markAsDeletedMessages = (ArrayList<Integer>) args[0];",
+             "ArrayList<Integer> markAsDeletedMessages = org.telegram.messenger.MelgramHistory.preserveVisibleDeletes("
+             "currentAccount, dialog_id, (Long)args[1], currentChat != null && ChatObject.isChannel(currentChat), "
+             "chatMode == MODE_DEFAULT && currentEncryptedChat == null && !isThreadChat() && !isTopic "
+             "&& !(Boolean)args[2] "
+             "&& !(args.length > 3 && Boolean.TRUE.equals(args[3])) "
+             "&& !(args.length > 4 && Boolean.TRUE.equals(args[4])) "
+             "&& !(args.length > 6 && args[6] instanceof java.util.ArrayList && !((java.util.ArrayList<?>)args[6]).isEmpty()), "
+             "(ArrayList<Integer>)args[0], this.messages);")),
+    ])
     soft_feature("history_live_marker", "обновление метки сообщения без перезапуска чата", [
         (J + "ui/ChatActivity.java",
          r"\} else if \(id == NotificationCenter\.messagesDeleted\) \{",
