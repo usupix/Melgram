@@ -17,10 +17,10 @@ public final class MelgramHistory {
     int result=0;
     synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return 0;
       Cursor c=d.rawQuery("SELECT deleted FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",new String[]{""+a,""+dialog,""+mid});
-      try{if(c.moveToFirst()&&c.getInt(0)!=0)result=2;}finally{c.close();}
-      if(result==0){
+      try{if(c.moveToFirst()&&c.getInt(0)!=0)result|=2;}finally{c.close();}
+      {
         c=d.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",new String[]{""+a,""+dialog,""+mid});
-        try{if(c.moveToFirst())result=1;}finally{c.close();}
+        try{if(c.moveToFirst())result|=1;}finally{c.close();}
       }
     }catch(Exception e){FileLog.e(e);}}
     if(badges.size()>12000)badges.clear();
@@ -73,7 +73,7 @@ public final class MelgramHistory {
   private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after){
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
     v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
-    badges.put(badgeKey(a,dialog,id),kind==2?2:1);
+    badges.merge(badgeKey(a,dialog,id),kind==2?2:1,(oldValue,flag)->oldValue|flag);
   }
   // Snapshot the message before Telegram changes its mutable TL objects.
   private static final class Snapshot {
@@ -279,11 +279,38 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);return false;}}
   }
   public static boolean wasDeleted(int a,long dialog,int mid){
-    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&badgeState(a,dialog,mid)==2;
+    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&(badgeState(a,dialog,mid)&2)!=0;
   }
   public static boolean hasEdits(int a,long dialog,int mid){
-    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&badgeState(a,dialog,mid)==1;
+    return MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)&&(badgeState(a,dialog,mid)&1)!=0;
   }
+  /**
+   * AyuGram-style timestamp marks are part of the measured text, never painted
+   * on top of the bubble. Both edit and deletion flags can be visible together.
+   */
+  public static String formatAyuTime(int account,MessageObject message,boolean telegramEdited,String time){
+    if(message==null||message.messageOwner==null||message.getId()<=0
+       ||time==null||time.isEmpty()
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
+       ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
+       ||message.messageOwner.edit_hide||message.scheduled||message.notime
+       ||message.isSponsored()||message.isQuickReply()||message.isWelcomeMessage())return time;
+    long dialog=message.getDialogId();
+    if(DialogObject.isEncryptedDialog(dialog))return time;
+    if(dialog>0&&!MelgramConfig.get(MelgramConfig.HISTORY_BOTS)){
+      TLRPC.User person=MessagesController.getInstance(account).getUser(dialog);
+      if(person!=null&&person.bot)return time;
+    }
+    int flags=badgeState(account,dialog,message.getId());
+    boolean deleted=MelgramConfig.get(MelgramConfig.HISTORY_DELETES)&&(flags&2)!=0;
+    boolean edited=telegramEdited||(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)&&(flags&1)!=0);
+    if(!deleted&&!edited)return time;
+    String status=edited?LocaleController.getString(R.string.EditedMessage):"";
+    if(deleted)status=edited?status+" (🧹)":"🧹";
+    String when=LocaleController.getInstance().getFormatterDay().format((long)message.messageOwner.date*1000);
+    return status+" "+when;
+  }
+
   public static ArrayList<Entry> forMessage(int a,long dialog,int mid){
     ArrayList<Entry> out=new ArrayList<>();
     synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return out;
