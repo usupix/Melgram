@@ -54,7 +54,9 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
                 MelgramHistory.forMessage(UserConfig.selectedAccount,dialog,message);
         Collections.reverse(events);
         String previous=null;
+        long finalTimestamp=System.currentTimeMillis();
         for(MelgramHistory.Entry event:events){
+            finalTimestamp=event.time;
             if(event.kind==1){
                 if(previous==null||!previous.equals(event.before)){
                     revisions.add(new Revision(event.before,event.time));
@@ -65,7 +67,7 @@ public final class MelgramRevisionChatFragment extends BaseFragment {
             }
         }
         if(previous!=null){
-            revisions.add(new Revision(previous,System.currentTimeMillis()));
+            revisions.add(new Revision(previous,finalTimestamp));
         }
         return true;
     }
