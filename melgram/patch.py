@@ -542,9 +542,29 @@ def patch_features():
              "&& !(args.length > 4 && Boolean.TRUE.equals(args[4])) "
              "&& !(args.length > 6 && args[6] instanceof java.util.ArrayList && !((java.util.ArrayList<?>)args[6]).isEmpty()), "
              "(ArrayList<Integer>)args[0], this.messages);\n"
-             "            if (markAsDeletedMessages.size() < ((ArrayList<Integer>)args[0]).size()) {\n"
+             "            boolean melgramPreservedAny = markAsDeletedMessages.size() < ((ArrayList<Integer>)args[0]).size();\n"
+             "            if (melgramPreservedAny) {\n"
+             "                for (Integer melgramId : (ArrayList<Integer>)args[0]) {\n"
+             "                    if (markAsDeletedMessages.contains(melgramId)) continue;\n"
+             "                    MessageObject melgramSelected = messagesDict[0].get(melgramId);\n"
+             "                    if (melgramSelected != null && selectedMessagesIds[0].indexOfKey(melgramId) >= 0) {\n"
+             "                        addToSelectedMessages(melgramSelected, false, false);\n"
+             "                    }\n"
+             "                }\n"
+             "                if (selectedMessagesIds[0].size() + selectedMessagesIds[1].size() == 0) {\n"
+             "                    hideActionMode();\n"
+             "                } else if (actionBar != null && actionBar.isActionModeShowed()) {\n"
+             "                    updateActionModeTitle();\n"
+             "                }\n"
              "                org.telegram.ui.MelgramInlineMarkers.refresh(this.messages, fragmentView, currentAccount);\n"
              "            }")),
+    ])
+    # A retained-only deletion must not run Telegram's empty deletion path:
+    # it clears unread anchors even when no message was actually removed.
+    soft_feature("history_skip_empty_native_delete", "не вызывать пустое удаление Telegram для сохранённых сообщений", [
+        (ca,
+         r"processDeletedMessages\(markAsDeletedMessages, channelId, sent, !movedToScheduled\);",
+         lambda m: "if (!melgramPreservedAny || !markAsDeletedMessages.isEmpty()) " + m.group(0)),
     ])
     soft_feature("double_tap", "двойное нажатие", [
         (ca, r"public boolean hasDoubleTap\(View view, int position\) \{\s*\n\s*if \(isQuickRepliesOrWelcomeMessagesMode\(\)\) return false;",
