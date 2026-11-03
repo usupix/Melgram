@@ -11,37 +11,84 @@ public final class MelgramHistory {
   private static final Object lock=new Object();
   private static final java.util.concurrent.ConcurrentHashMap<String,Integer> badges=new java.util.concurrent.ConcurrentHashMap<>();
   private static String badgeKey(int a,long dialog,int mid){return a+":"+dialog+":"+mid;}
-  private static int badgeState(int a,long dialog,int mid){
-    String key=badgeKey(a,dialog,mid);
-    Integer cached=badges.get(key);if(cached!=null&&cached>=0)return cached;
-    int result=0;
-    synchronized(lock){try{SQLiteDatabase d=db();if(d==null)return 0;
-      Cursor c=d.rawQuery("SELECT deleted FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",new String[]{""+a,""+dialog,""+mid});
-      try{if(c.moveToFirst()&&c.getInt(0)!=0)result|=2;}finally{c.close();}
-      {
-        c=d.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",new String[]{""+a,""+dialog,""+mid});
-        try{if(c.moveToFirst())result|=1;}finally{c.close();}
-      }
-    }catch(Exception e){FileLog.e(e);}}
-    if(badges.size()>12000)badges.clear();
-    badges.put(key,result);return result;
+  // Badges are looked up off the UI thread and cached (including absent badges).
+  // A cell can be recycled while a query is running: its identity is checked
+  // before notifying RecyclerView to perform a normal, grouped-message-safe rebind.
+  private static final java.util.concurrent.ConcurrentHashMap<String,
+      java.util.concurrent.CopyOnWriteArrayList<java.lang.ref.WeakReference<android.view.View>>> badgeObservers =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private static int readBadgeFromDb(int a,long dialog,int mid) {
+    int state=0;
+    synchronized(lock) {
+      try {
+        SQLiteDatabase database=db();
+        if(database==null)return 0;
+        String[] args={""+a,""+dialog,""+mid};
+        Cursor c=database.rawQuery("SELECT deleted FROM messages WHERE account=? AND dialog=? AND mid=? LIMIT 1",args);
+        try { if(c.moveToFirst()&&c.getInt(0)!=0)state|=2; } finally { c.close(); }
+        c=database.rawQuery("SELECT 1 FROM events WHERE account=? AND dialog=? AND mid=? AND kind=1 LIMIT 1",args);
+        try { if(c.moveToFirst())state|=1; } finally { c.close(); }
+      } catch(Exception e) { FileLog.e(e); }
+    }
+    return state;
   }
-  /**
-   * Never block Android's drawing thread while a message badge is looked up.
-   * Missing badges are fetched on the history worker and the visible cell is invalidated.
-   */
-  public static int statusForView(int a,long dialog,int mid,android.view.View view){
+
+  private static void rebindBadgeObserver(android.view.View view,int account,long dialog,int mid) {
+    if(!(view instanceof org.telegram.ui.Cells.ChatMessageCell))return;
+    org.telegram.ui.Cells.ChatMessageCell cell=(org.telegram.ui.Cells.ChatMessageCell)view;
+    MessageObject m=cell.getPrimaryMessageObject();
+    if(m==null||m.currentAccount!=account||m.getDialogId()!=dialog||m.getId()!=mid)return;
+    android.view.ViewParent parent=cell.getParent();
+    if(parent instanceof androidx.recyclerview.widget.RecyclerView) {
+      androidx.recyclerview.widget.RecyclerView list=(androidx.recyclerview.widget.RecyclerView)parent;
+      list.post(()->{
+        if(cell.getParent()!=list)return;
+        MessageObject current=cell.getPrimaryMessageObject();
+        if(current==null||current.currentAccount!=account||current.getDialogId()!=dialog||current.getId()!=mid)return;
+        androidx.recyclerview.widget.RecyclerView.Adapter adapter=list.getAdapter();
+        int position=list.getChildAdapterPosition(cell);
+        if(adapter!=null&&position!=androidx.recyclerview.widget.RecyclerView.NO_POSITION) {
+          adapter.notifyItemChanged(position);
+        }
+      });
+    } else {
+      cell.requestLayout();
+      cell.invalidate();
+    }
+  }
+
+  public static int statusForView(int a,long dialog,int mid,android.view.View view) {
+    if(mid<=0||dialog==0)return 0;
     String key=badgeKey(a,dialog,mid);
-    Integer cached=badges.get(key);
-    if(cached!=null)return cached<0?0:cached;
-    if(badges.putIfAbsent(key,-1)==null){
-      queue.execute(()->{
-        badges.remove(key,-1);
-        badgeState(a,dialog,mid);
-        if(view!=null)AndroidUtilities.runOnUIThread(view::invalidate);
+    Integer state=badges.get(key);
+    if(state!=null&&state>=0)return state;
+    if(view!=null) {
+      badgeObservers.compute(key,(k,observers)->{
+        if(observers==null)observers=new java.util.concurrent.CopyOnWriteArrayList<>();
+        if(observers.size()<32)observers.add(new java.lang.ref.WeakReference<>(view));
+        return observers;
       });
     }
+    if(badges.putIfAbsent(key,-1)==null) {
+      queue.execute(()->{
+        int fetched=readBadgeFromDb(a,dialog,mid);
+        // An edit/delete event may have been recorded while the read was pending.
+        badges.compute(key,(k,current)->current==null||current<0?fetched:current|fetched);
+        java.util.List<java.lang.ref.WeakReference<android.view.View>> observers=badgeObservers.remove(key);
+        if(observers!=null)AndroidUtilities.runOnUIThread(()->{
+          for(java.lang.ref.WeakReference<android.view.View> ref:observers) {
+            android.view.View v=ref.get();
+            if(v!=null)rebindBadgeObserver(v,a,dialog,mid);
+          }
+        });
+      });
+    }
+    if(badges.size()>12000) { badges.clear(); badgeObservers.clear(); }
     return 0;
+  }
+  private static int badgeState(int a,long dialog,int mid) {
+    return statusForView(a,dialog,mid,null);
   }
   private static SQLiteOpenHelper helper;
   public static class Entry {
@@ -73,7 +120,7 @@ public final class MelgramHistory {
   private static void event(SQLiteDatabase d,int a,long dialog,int id,int kind,String before,String after){
     ContentValues v=new ContentValues();v.put("account",a);v.put("dialog",dialog);v.put("mid",id);v.put("kind",kind);
     v.put("before_text",before);v.put("after_text",after);v.put("time",System.currentTimeMillis());d.insert("events",null,v);
-    badges.merge(badgeKey(a,dialog,id),kind==2?2:1,(oldValue,flag)->oldValue|flag);
+    badges.compute(badgeKey(a,dialog,id),(key,oldValue)->(oldValue==null||oldValue<0?0:oldValue)|(kind==2?2:1));
   }
   // Snapshot the message before Telegram changes its mutable TL objects.
   private static final class Snapshot {
@@ -208,7 +255,7 @@ public final class MelgramHistory {
     int min=Integer.MAX_VALUE,max=0;
     HashSet<Integer> present=new HashSet<>();
     for(MessageObject item:loaded){
-      if(item==null||item.getId()<=0)return;
+      if(item==null||item.getId()<=0)continue;
       present.add(item.getId());
       min=Math.min(min,item.getId());max=Math.max(max,item.getId());
     }
@@ -288,7 +335,7 @@ public final class MelgramHistory {
    * AyuGram-style timestamp marks are part of the measured text, never painted
    * on top of the bubble. Both edit and deletion flags can be visible together.
    */
-  public static String formatAyuTime(int account,MessageObject message,boolean telegramEdited,String time){
+  public static String formatAyuTime(int account,MessageObject message,boolean telegramEdited,String time,android.view.View cell){
     if(message==null||message.messageOwner==null||message.getId()<=0
        ||time==null||time.isEmpty()
        ||!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
@@ -301,14 +348,13 @@ public final class MelgramHistory {
       TLRPC.User person=MessagesController.getInstance(account).getUser(dialog);
       if(person!=null&&person.bot)return time;
     }
-    int flags=badgeState(account,dialog,message.getId());
+    int flags=statusForView(account,dialog,message.getId(),cell);
     boolean deleted=MelgramConfig.get(MelgramConfig.HISTORY_DELETES)&&(flags&2)!=0;
     boolean edited=telegramEdited||(MelgramConfig.get(MelgramConfig.HISTORY_EDITS)&&(flags&1)!=0);
     if(!deleted&&!edited)return time;
-    String status=edited?LocaleController.getString(R.string.EditedMessage):"";
-    if(deleted)status=edited?status+" (🧹)":"🧹";
-    String when=LocaleController.getInstance().getFormatterDay().format((long)message.messageOwner.date*1000);
-    return status+" "+when;
+    // Inline glyphs, not floating overlays. The native time layout measures
+    // the whole label and uses the active chat bubble theme color.
+    return (edited?"✎ ":"")+(deleted?"✕ ":"")+time;
   }
 
   public static ArrayList<Entry> forMessage(int a,long dialog,int mid){
@@ -320,7 +366,7 @@ public final class MelgramHistory {
     }catch(Exception e){FileLog.e(e);}}
     return out;
   }
-  /** Preserve only messages belonging to the specific dialog being deleted. */
+  /** Legacy compatibility helpers: the new patch no longer intercepts native deletes. */
   public static void retainDeletedInStorage(int account,long dialog,ArrayList<Integer> ids){
     if(!MelgramConfig.get(MelgramConfig.HISTORY_ENABLED)
       ||!MelgramConfig.get(MelgramConfig.HISTORY_INLINE)
