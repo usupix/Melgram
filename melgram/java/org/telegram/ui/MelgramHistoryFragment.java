@@ -9,12 +9,34 @@ public class MelgramHistoryFragment extends UniversalFragment {
   private final long dialog;
   private final int messageId;
   private final ArrayList<MelgramHistory.Entry> entries=new ArrayList<>();
+  private boolean loading=true;
+  private boolean disposed=false;
+
+  @Override public boolean onFragmentCreate(){
+    super.onFragmentCreate();
+    refresh();
+    return true;
+  }
+  @Override public void onFragmentDestroy(){
+    disposed=true;
+    super.onFragmentDestroy();
+  }
+  private void refresh(){
+    loading=true;
+    MelgramHistory.loadEvents(currentAccount,dialog,messageId,200,result->{
+      if(disposed)return;
+      entries.clear();
+      entries.addAll(result);
+      loading=false;
+      if(listView!=null&&listView.adapter!=null)listView.adapter.update(true);
+    });
+  }
   public MelgramHistoryFragment(){this(0,0);}
   public MelgramHistoryFragment(long dialog){this(dialog,0);}
   public MelgramHistoryFragment(long dialog,int messageId){this.dialog=dialog;this.messageId=messageId;}
   @Override protected CharSequence getTitle(){return messageId>0?"История правок":dialog==0?"История сообщений":"История чата";}
   @Override protected void fillItems(ArrayList<UItem> items,UniversalAdapter adapter){
-    entries.clear();entries.addAll(messageId>0?MelgramHistory.forMessage(currentAccount,dialog,messageId):MelgramHistory.recent(currentAccount,dialog,200));
+    // Render the last completed background query without blocking the UI thread.
     if(dialog!=0){
       items.add(UItem.asHeader("Архив этого чата"));
       items.add(UItem.asButtonCheck(CHAT_SAVE,"Сохранять историю в этом чате","Старые записи останутся в архиве").setChecked(MelgramConfig.historyDialogEnabled(currentAccount,dialog)));
@@ -22,7 +44,8 @@ public class MelgramHistoryFragment extends UniversalFragment {
     }
     items.add(UItem.asHeader("Удалённые и изменённые"));
     items.add(UItem.asShadow("История хранится на устройстве отдельно от кеша Telegram. Сохраняется только текст и подписи."));
-    if(entries.isEmpty())items.add(UItem.asShadow("История пуста. Включи сохранение, чтобы видеть новые удаления и правки."));
+    if(loading)items.add(UItem.asShadow("Загружаю историю…"));
+    else if(entries.isEmpty())items.add(UItem.asShadow("История пуста. Включи сохранение, чтобы видеть новые удаления и правки."));
     for(int i=0;i<entries.size();i++){
       MelgramHistory.Entry e=entries.get(i);
       String txt=e.before==null?"":e.before.replace('\n',' ');
@@ -40,13 +63,13 @@ public class MelgramHistoryFragment extends UniversalFragment {
       AlertDialog.Builder b=new AlertDialog.Builder(getParentActivity());
       b.setTitle("Очистить локальную историю этого чата?");
       b.setMessage("Записи других чатов и аккаунтов останутся без изменений.");
-      b.setPositiveButton("Удалить",(d,w)->MelgramHistory.clearArchive(currentAccount,dialog,()->listView.adapter.update(true)));
+      b.setPositiveButton("Удалить",(d,w)->MelgramHistory.clearArchive(currentAccount,dialog,()->refresh()));
       b.setNegativeButton("Отмена",null);showDialog(b.create());
     }else if(item.id==CLEAR){
       AlertDialog.Builder b=new AlertDialog.Builder(getParentActivity());
       b.setTitle("Очистить локальную историю?");
       b.setMessage("Все сохранённые изменения и удаления текущего аккаунта будут удалены.");
-      b.setPositiveButton("Удалить",(d,w)->{MelgramHistory.clearArchive(currentAccount,0,()->listView.adapter.update(true));});
+      b.setPositiveButton("Удалить",(d,w)->{MelgramHistory.clearArchive(currentAccount,0,()->refresh());});
       b.setNegativeButton("Отмена",null);showDialog(b.create());
     }else if(item.id>=ITEM&&item.id<ITEM+entries.size()){
       MelgramHistory.Entry e=entries.get(item.id-ITEM);
