@@ -40,7 +40,7 @@ public final class MelgramBubbleOverlay {
         if(action==android.view.MotionEvent.ACTION_UP&&Boolean.TRUE.equals(wasPressed)&&hit){
             org.telegram.ui.ActionBar.BaseFragment f=LaunchActivity.getSafeLastFragment();
             if(f instanceof ChatActivity){
-                f.presentFragment(new MelgramHistoryFragment(message.getDialogId(),message.getId()));
+                f.presentFragment(new MelgramRevisionChatFragment(message.getDialogId(),message.getId()));
             }
             return true;
         }
