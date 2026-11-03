@@ -556,6 +556,7 @@ public final class MelgramHistory {
         } catch(Exception e){FileLog.e(e);}
       }
       if(completed)for(String path:files)MelgramMediaArchive.delete(path);
+      if(completed)MelgramMediaArchive.purge(account,dialog);
       if(callback!=null)AndroidUtilities.runOnUIThread(callback);
     });
   }
@@ -582,6 +583,7 @@ public final class MelgramHistory {
         }catch(Exception ex){FileLog.e(ex);}
       }
       if(completed)for(String path:files)MelgramMediaArchive.delete(path);
+      if(completed)MelgramMediaArchive.purge(account,dialog);
       if(completed&&dialog!=0)org.telegram.ui.MelgramInlineMarkers.onArchiveChanged(account,dialog);
       if(callback!=null)AndroidUtilities.runOnUIThread(callback);
     });
